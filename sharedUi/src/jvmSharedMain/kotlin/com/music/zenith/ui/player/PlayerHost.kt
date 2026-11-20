@@ -263,7 +263,7 @@ interface PlayerSettingsSource {
     /** A temporary cap over both ceilings, null when none applies — the watch's, on the phone. */
     val streamCeilingOverride: StateFlow<AudioQuality?>
     val preferUsbDac: StateFlow<Boolean>
-    val prioritizeSpotifyCanvas: StateFlow<Boolean>
+    val canvasProviderOrder: StateFlow<List<com.music.zenith.data.canvas.CanvasProvider>>
     val reduceAnimation: StateFlow<Boolean>
     /** Whether the cover slides/sweeps to the new song's on a song change, rather than cutting. */
     val coverSlideAnimation: StateFlow<Boolean>
@@ -428,6 +428,10 @@ class CanvasVideoSpec(
     val onStillCaptured: (ImageBitmap?, Long) -> Unit,
     val onResumed: () -> Unit,
     val frameGrab: CanvasFrameGrab?,
+    /** Pengali [bottomFade] yang dibaca tiap frame, untuk fade yang ikut animasi. */
+    val bottomFadeScale: () -> Float = { 1f },
+    /** 0..1: seberapa jauh klip portrait sudah tumbuh dari kotak contain ke crop layar penuh. */
+    val fillProgress: () -> Float = { 0f },
 )
 
 /**
@@ -454,6 +458,10 @@ fun CanvasArtworkPlayer(
     bottomFadeEndPx: Float? = null,
     /** Blur radius in px applied on the video view itself; a Compose blur over a TextureView is unreliable. */
     blurPx: () -> Float = { 0f },
+    /** Pengali [bottomFade] yang dibaca tiap frame, untuk fade yang ikut animasi. */
+    bottomFadeScale: () -> Float = { 1f },
+    /** 0..1: seberapa jauh klip portrait sudah tumbuh dari kotak contain ke crop layar penuh. */
+    fillProgress: () -> Float = { 0f },
     pausedForTransition: Boolean = false,
     /** How long the clip holds still after [pausedForTransition] lifts before it plays on. */
     resumeDelayMs: Long = 0L,
@@ -490,6 +498,8 @@ fun CanvasArtworkPlayer(
             bottomFade = bottomFade,
             bottomFadeEndPx = bottomFadeEndPx,
             blurPx = blurPx,
+            bottomFadeScale = bottomFadeScale,
+            fillProgress = fillProgress,
             pausedForTransition = pausedForTransition,
             resumeDelayMs = resumeDelayMs,
             startPositionMs = startPositionMs,
