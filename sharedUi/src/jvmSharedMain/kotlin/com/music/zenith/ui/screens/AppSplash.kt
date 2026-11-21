@@ -5,8 +5,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -19,6 +23,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 
@@ -33,6 +40,12 @@ private const val SPLASH_LOGO_TO_FONT = 0.83f
 
 private const val SPLASH_GAP_TO_FONT = 0.14f
 
+/** How far the mark sits below the screen's centre; centred content moves half of the top padding. */
+private val SPLASH_NUDGE_DOWN = 4.dp
+
+/** The logo's height against the word's font size, as for the plain mark. */
+private const val SPLASH_MARK_TO_FONT = 0.83f
+
 /**
  * A full-screen splash in Apple Music's manner: a red gradient from a lighter
  * top to a deeper bottom, with the mark and its word centred in white. Drawn
@@ -40,7 +53,10 @@ private const val SPLASH_GAP_TO_FONT = 0.14f
  * recreation so a rotation does not bring it back.
  */
 @Composable
-fun AppSplash(modifier: Modifier = Modifier) {
+fun AppSplash(
+    modifier: Modifier = Modifier,
+    mark: (@Composable (Dp) -> Unit)? = null,
+) {
     var visible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         if (visible) {
@@ -62,16 +78,33 @@ fun AppSplash(modifier: Modifier = Modifier) {
                     ),
                 )
                 // Nothing underneath should react while the splash is up.
-                .pointerInput(Unit) { detectTapGestures { } },
+                .pointerInput(Unit) { detectTapGestures { } }
+                .padding(top = SPLASH_NUDGE_DOWN * 2),
             contentAlignment = Alignment.Center,
         ) {
             val font = maxWidth * SPLASH_FONT_WIDTH_SHARE
-            Wordmark(
-                logoHeight = font * SPLASH_LOGO_TO_FONT,
-                fontSize = with(LocalDensity.current) { font.toSp() },
-                color = Color.White,
-                gap = font * SPLASH_GAP_TO_FONT,
-            )
+            if (mark != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(font * SPLASH_GAP_TO_FONT),
+                ) {
+                    mark(font * SPLASH_MARK_TO_FONT)
+                    Text(
+                        text = "Music",
+                        color = Color.White,
+                        fontSize = with(LocalDensity.current) { font.toSp() },
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+            } else {
+                Wordmark(
+                    logoHeight = font * SPLASH_LOGO_TO_FONT,
+                    fontSize = with(LocalDensity.current) { font.toSp() },
+                    color = Color.White,
+                    gap = font * SPLASH_GAP_TO_FONT,
+                )
+            }
         }
     }
 }

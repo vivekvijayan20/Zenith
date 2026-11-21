@@ -562,6 +562,18 @@ internal fun TransportRow(
     val playSize = if (compact) 58.dp else 78.dp
     val playTouch = if (compact) 76.dp else 84.dp
     val skipSize = if (compact) 44.dp else PLAYER_SKIP_ICON_SIZE
+    // The glyph answers the tap itself rather than waiting for the player's
+    // report to come back through the screen; the real state takes over as soon
+    // as it changes, or after a beat if the tap changed nothing.
+    var tapped by remember { mutableStateOf<Boolean?>(null) }
+    val shownPlaying = tapped ?: isPlaying
+    LaunchedEffect(isPlaying) { tapped = null }
+    LaunchedEffect(tapped) {
+        if (tapped != null) {
+            delay(PLAY_PAUSE_TAP_HOLD_MS)
+            tapped = null
+        }
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         // SpaceAround, not SpaceEvenly: the outer margins take half a gap, so
@@ -580,26 +592,18 @@ internal fun TransportRow(
             haptic = Haptic.SkipPrevious,
             direction = -1,
         )
-        if (isLoading) {
-            // Same footprint as the play/pause target — a smaller box here
-            // would shunt everything below it on every load.
-            Box(Modifier.size(playTouch), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(if (compact) 30.dp else 38.dp),
-                )
-            }
-        } else {
-            TransportGlyph(
-                icon = if (isPlaying) Res.drawable.ic_player_pause else Res.drawable.ic_player_play,
-                contentDescription = stringResource(if (isPlaying) Res.string.pause else Res.string.play),
-                size = playSize,
-                touchSize = playTouch,
-                onClick = onPlayPause,
-                haptic = if (isPlaying) Haptic.Pause else Haptic.Resume,
-            )
-        }
+        TransportGlyph(
+            icon = if (shownPlaying) Res.drawable.ic_player_pause else Res.drawable.ic_player_play,
+            altIcon = if (shownPlaying) Res.drawable.ic_player_play else Res.drawable.ic_player_pause,
+            contentDescription = stringResource(if (shownPlaying) Res.string.pause else Res.string.play),
+            size = playSize,
+            touchSize = playTouch,
+            onClick = {
+                tapped = !shownPlaying
+                onPlayPause()
+            },
+            haptic = if (shownPlaying) Haptic.Pause else Haptic.Resume,
+        )
         TransportGlyph(
             icon = Res.drawable.ic_player_next,
             contentDescription = stringResource(Res.string.widget_next),
@@ -892,6 +896,8 @@ internal fun CircleGlyph(
 @Composable
 private fun TransportGlyph(
     icon: DrawableResource,
+    /** The glyph this one morphs with, loaded up front so neither side of the morph loads mid-animation. */
+    altIcon: DrawableResource? = null,
     contentDescription: String,
     size: androidx.compose.ui.unit.Dp,
     touchSize: androidx.compose.ui.unit.Dp = size,
@@ -925,6 +931,10 @@ private fun TransportGlyph(
         animationSpec = tween(durationMillis = if (pressed) 70 else 260),
         label = "transportDisc",
     )
+    // Both play/pause glyphs are resolved up front, so the one morphing in is
+    // already drawn on its first frame rather than loading while it scales up.
+    val iconPainter = painterResource(icon)
+    val altPainter = altIcon?.let { painterResource(it) }
     // On tap: the glyph is kicked the way it points and rebounds, with a ring.
     val scope = rememberCoroutineScope()
     val kick = remember { Animatable(0f) }
@@ -962,21 +972,21 @@ private fun TransportGlyph(
             targetState = icon,
             transitionSpec = {
                 (
-                    fadeIn(spring(stiffness = Spring.StiffnessMedium)) +
+                    fadeIn(tween(110)) +
                         scaleIn(
-                            initialScale = 0.55f,
-                            animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                            initialScale = 0.6f,
+                            animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium),
                         )
                     ) togetherWith (
-                    fadeOut(tween(90)) +
-                        scaleOut(targetScale = 0.55f, animationSpec = tween(120))
+                    fadeOut(tween(70)) +
+                        scaleOut(targetScale = 0.6f, animationSpec = tween(90))
                     )
             },
             contentAlignment = Alignment.Center,
             label = "transportGlyph",
         ) { glyph ->
             Icon(
-                painter = painterResource(glyph),
+                painter = if (glyph == icon) iconPainter else altPainter ?: iconPainter,
                 contentDescription = contentDescription,
                 tint = Color.White.copy(alpha = alpha),
                 modifier = Modifier
@@ -1002,6 +1012,9 @@ private val PLAYER_SKIP_TOUCH_SIZE = 53.dp
  * reads lower and longer next to the play button without losing any width.
  */
 private const val PLAYER_SKIP_HEIGHT_SCALE = 0.85f
+
+/** How long a tapped play/pause glyph keeps its own answer before the player's state takes over again. */
+private const val PLAY_PAUSE_TAP_HOLD_MS = 600L
 
 private val BOTTOM_ACTION_SIZE = 44.dp
 

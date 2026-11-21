@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
@@ -249,6 +251,18 @@ fun GlassSearchBar(
     LaunchedEffect(openState) { currentOnOpenState(openState) }
     DisposableEffect(Unit) { onDispose { currentOnOpenState(null) } }
     val inlineStart = remember { startInline }
+    // Keyboard up: the last tab's circle fades out and the field takes over its
+    // room; keyboard down: the same spring runs back. One value drives both.
+    val imeInsets = WindowInsets.ime
+    val imeDensity = LocalDensity.current
+    val imeUp by remember { derivedStateOf { imeInsets.getBottom(imeDensity) > 0 } }
+    val tabFocus = animateFloatAsState(
+        targetValue = if (open && imeUp) 1f else 0f,
+        animationSpec = spring(dampingRatio = 1f, stiffness = 400f),
+        label = "searchBarTabHide",
+    )
+    val tabHide: () -> Float = { tabFocus.value.coerceIn(0f, 1f) }
+    val tabClickable by remember { derivedStateOf { tabFocus.value < 0.5f } }
     // Fraksi dilaporkan ke atas lewat snapshotFlow, tanpa merekomposisi bar tiap frame.
     LaunchedEffect(Unit) {
         snapshotFlow { openState.value }.collect { currentOnOpenFraction(it) }
@@ -362,10 +376,12 @@ fun GlassSearchBar(
         val leftWidth: (Float) -> Dp = { p ->
             if (inlineStart) BAR_FIELD_CIRCLE else lerpDp(restLeft, BAR_FIELD_CIRCLE, p)
         }
+        // Room the last tab's circle leaves behind once the keyboard is up.
+        val hideRoom: () -> Dp = { (BAR_FIELD_CIRCLE + BAR_FIELD_GAP) * tabHide() }
         val rightWidth: (Float) -> Dp = { p ->
-            val room = fullWidth(p) - leftWidth(p) - gap(p)
+            val room = fullWidth(p) - leftWidth(p) - gap(p) + hideRoom()
             val w = if (inlineStart) {
-                minOf(maxOf(BAR_FIELD_CIRCLE, lerpDp(BAR_FIELD_CIRCLE, fieldWidth, p)), room)
+                minOf(maxOf(BAR_FIELD_CIRCLE, lerpDp(BAR_FIELD_CIRCLE, fieldWidth + hideRoom(), p)), room)
             } else {
                 room
             }
@@ -388,10 +404,16 @@ fun GlassSearchBar(
                     width = { leftWidth(progress()) },
                     height = { rowHeight(progress()) },
                 )
+                .graphicsLayer {
+                    val f = tabHide()
+                    alpha = 1f - f
+                    scaleX = 1f - 0.35f * f
+                    scaleY = 1f - 0.35f * f
+                }
                 .clip(shape)
                 .then(Modifier.liquidGlass(shape = shape))
                 .clickable(
-                    enabled = interactive,
+                    enabled = interactive && tabClickable,
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                 ) {
@@ -504,8 +526,14 @@ fun GlassSearchBar(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .padding(start = BAR_FIELD_CONTROL)
-                        .requiredWidth(fieldWidth - BAR_FIELD_CONTROL * 2)
-                        .fillMaxHeight()
+                        .layout { measurable, constraints ->
+                            val w = (fieldWidth + hideRoom() - BAR_FIELD_CONTROL * 2)
+                                .roundToPx().coerceAtLeast(0)
+                            val placeable = measurable.measure(
+                                Constraints.fixed(w, constraints.maxHeight),
+                            )
+                            layout(w, placeable.height) { placeable.placeRelative(0, 0) }
+                        }
                         .graphicsLayer { alpha = searchContentAlpha(progress()) },
                     contentAlignment = Alignment.CenterStart,
                 ) {

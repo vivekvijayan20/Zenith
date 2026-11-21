@@ -2585,7 +2585,8 @@ fun NowPlayingScreen(
                         PlayerScrubber(
                             shown = shown,
                             durationMs = durationMs,
-                            loading = versionAligning || audioVersionSwitching,
+                            loading = versionAligning || audioVersionSwitching ||
+                                (isLoading && !scrub.scrubbing && scrub.pendingSeek == null),
                             mixing = mixing && !scrub.scrubbing,
                             transitionWindow = transitionWindow
                                 ?.takeIf { !scrub.scrubbing && it.end > it.start }
@@ -2854,7 +2855,8 @@ fun NowPlayingScreen(
                                 PlayerScrubber(
                                     shown = shown,
                                     durationMs = durationMs,
-                                    loading = versionAligning || audioVersionSwitching,
+                                    loading = versionAligning || audioVersionSwitching ||
+                                        (isLoading && !scrub.scrubbing && scrub.pendingSeek == null),
                                     mixing = mixing && !scrub.scrubbing,
                                     transitionWindow = transitionWindow
                                         ?.takeIf { !scrub.scrubbing && it.end > it.start }
@@ -3863,7 +3865,8 @@ fun NowPlayingScreen(
                     // Both named here, so there is no frame of the switch with nothing
                     // on screen saying the player is still working.
                     val versionAligning by PlayerSettings.versionAlignmentInProgress.collectAsStateWithLifecycle()
-                    val versionSwitching = versionAligning || audioVersionSwitching
+                    val versionSwitching = versionAligning || audioVersionSwitching ||
+                        (isLoading && !scrub.scrubbing && scrub.pendingSeek == null)
                     // Height the artwork block below turns out not to need, spent by the
                     // controls at the foot of the screen. Filled in from inside the box,
                     // where the sleeve's real size is known; see [lastControlSpread].

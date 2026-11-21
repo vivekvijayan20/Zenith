@@ -39,11 +39,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -83,6 +86,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.abs
@@ -644,6 +648,9 @@ private val NEXT_GLYPH_SIZE = 25.dp
  */
 private const val MINI_PLAY_PAUSE_SCALE = 1.15f
 
+/** How long a tapped play/pause glyph keeps its own answer before the player's state takes over again. */
+private const val PLAY_PAUSE_TAP_HOLD_MS = 600L
+
 /**
  * The mini players' play/pause button, with the full player's feel: the glyph
  * shrinks under the finger and springs back, and play and pause morph into
@@ -665,6 +672,20 @@ internal fun MiniPlayerPlayPauseButton(
         animationSpec = spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMedium),
         label = "miniPlayPausePress",
     )
+    // The glyph answers the tap itself rather than waiting for the player's
+    // report to come back through the screen; the real state takes over as soon
+    // as it changes, or after a beat if the tap changed nothing.
+    var tapped by remember { mutableStateOf<Boolean?>(null) }
+    val shownPlaying = tapped ?: isPlaying
+    LaunchedEffect(isPlaying) { tapped = null }
+    LaunchedEffect(tapped) {
+        if (tapped != null) {
+            delay(PLAY_PAUSE_TAP_HOLD_MS)
+            tapped = null
+        }
+    }
+    val playPainter = painterResource(SharedRes.drawable.ic_player_play)
+    val pausePainter = painterResource(SharedRes.drawable.ic_player_pause)
     val pressDisc by animateFloatAsState(
         targetValue = if (pressed) 0.18f else 0f,
         animationSpec = tween(durationMillis = if (pressed) 70 else 260),
@@ -685,30 +706,31 @@ internal fun MiniPlayerPlayPauseButton(
                 interactionSource = interaction,
                 indication = null,
                 role = androidx.compose.ui.semantics.Role.Button,
-            ) { onClick() },
+            ) {
+                tapped = !shownPlaying
+                onClick()
+            },
         contentAlignment = Alignment.Center,
     ) {
         AnimatedContent(
-            targetState = isPlaying,
+            targetState = shownPlaying,
             transitionSpec = {
                 (
-                    fadeIn(spring(stiffness = Spring.StiffnessMedium)) +
+                    fadeIn(tween(110)) +
                         scaleIn(
-                            initialScale = 0.55f,
-                            animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                            initialScale = 0.6f,
+                            animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium),
                         )
                     ) togetherWith (
-                    fadeOut(tween(90)) +
-                        scaleOut(targetScale = 0.55f, animationSpec = tween(120))
+                    fadeOut(tween(70)) +
+                        scaleOut(targetScale = 0.6f, animationSpec = tween(90))
                     )
             },
             contentAlignment = Alignment.Center,
             label = "miniPlayPause",
         ) { playing ->
             Icon(
-                painter = painterResource(
-                    if (playing) SharedRes.drawable.ic_player_pause else SharedRes.drawable.ic_player_play,
-                ),
+                painter = if (playing) pausePainter else playPainter,
                 contentDescription = stringResource(if (playing) R.string.pause else R.string.play),
                 tint = tint,
                 modifier = Modifier
