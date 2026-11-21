@@ -151,7 +151,7 @@ internal fun keepScrollInList(listState: LazyListState) = object : NestedScrollC
 private val QUEUE_ROW_MOTION = tween<IntOffset>(durationMillis = 200, easing = FastOutSlowInEasing)
 
 /** Softens the list where it meets the header and the scrubber. */
-internal fun Modifier.fadingEdges(): Modifier = this
+internal fun Modifier.fadingEdges(bottomFade: androidx.compose.ui.unit.Dp = 28.dp): Modifier = this
     .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
     .drawWithContent {
         drawContent()
@@ -167,7 +167,7 @@ internal fun Modifier.fadingEdges(): Modifier = this
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(Color.Black, Color.Transparent),
-                startY = size.height - fade,
+                startY = size.height - bottomFade.toPx(),
                 endY = size.height,
             ),
             blendMode = BlendMode.DstIn,
@@ -271,6 +271,8 @@ internal fun InlineQueue(
     onToggleAutoplay: () -> Unit = {},
     /** Frost source for the long-press info cards on the playback mode buttons. */
     hazeState: HazeState? = null,
+    /** Tinggi fade di kaki daftar; dipendekkan saat strip lirik di atas bar mati. */
+    bottomFade: androidx.compose.ui.unit.Dp = 28.dp,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -357,7 +359,7 @@ internal fun InlineQueue(
             modifier = Modifier
                 .fillMaxWidth()
                 .bleedHorizontally(PLAYER_GUTTER)
-                .fadingEdges(),
+                .fadingEdges(bottomFade),
         ) {
             LazyColumn(
                 state = listState,

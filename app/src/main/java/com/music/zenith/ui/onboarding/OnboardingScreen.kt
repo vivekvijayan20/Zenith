@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -74,7 +75,6 @@ import androidx.compose.ui.unit.sp
 import com.music.zenith.R
 import com.music.zenith.sharedui.resources.Res
 import com.music.zenith.sharedui.resources.ic_google_g
-import com.music.zenith.sharedui.resources.ic_logo
 import org.jetbrains.compose.resources.painterResource
 import com.music.zenith.ui.icons.ZenithIcons
 import com.music.zenith.ui.player.MeshGradientBackground
@@ -220,11 +220,14 @@ private fun ColumnScope.NamePage(
         exit = fadeOut() + shrinkVertically(),
     ) {
         Column {
-            Spacer(Modifier.height(56.dp))
+            // Ikon Dark Glass: foreground adaptive 108dp dengan squircle jadi (72/108)
+            // di tengah. Digambar 84dp supaya squircle-nya 56dp, lalu digeser sebesar
+            // margin transparannya agar rata kiri dengan judul.
+            Spacer(Modifier.height(42.dp))
             Image(
-                painter = painterResource(Res.drawable.ic_logo),
+                painter = androidx.compose.ui.res.painterResource(R.drawable.ic_zenith_dark_glass_foreground),
                 contentDescription = null,
-                modifier = Modifier.size(width = 46.dp, height = 30.dp),
+                modifier = Modifier.size(84.dp).offset(x = (-14).dp),
             )
         }
     }

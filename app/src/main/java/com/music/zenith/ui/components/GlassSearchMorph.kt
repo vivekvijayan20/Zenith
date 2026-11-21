@@ -6,7 +6,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
@@ -54,6 +57,7 @@ private val MORPH_CONTROL = 44.dp
  * at its start and the source switch at its end. The mini player stays above
  * it; the caller lays both out.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GlassSearchMorph(
     lastTab: BottomTab,
@@ -78,6 +82,16 @@ fun GlassSearchMorph(
         targetValue = if (entered) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 320f),
         label = "searchMorphOpen",
+    )
+
+    // Keyboard up: the Home circle fades out and the capsule grows over its room;
+    // keyboard down: the same spring runs back. One value drives both, so the
+    // circle leaving and the field widening can never fall out of step.
+    val imeUp = WindowInsets.isImeVisible
+    val focusFraction by animateFloatAsState(
+        targetValue = if (imeUp) 1f else 0f,
+        animationSpec = spring(dampingRatio = 1f, stiffness = 400f),
+        label = "searchMorphFocus",
     )
 
     val keyboard = LocalSoftwareKeyboardController.current
@@ -106,16 +120,25 @@ fun GlassSearchMorph(
     ) {
         val fullWidth = maxWidth
         // The capsule's width once open: whatever the last tab's circle leaves.
-        val fieldWidth = fullWidth - MORPH_CIRCLE - MORPH_GAP
+        // The Home circle's room (circle + gap) is handed to the field as the
+        // keyboard comes up, so the capsule ends at the full bar width.
+        val fieldWidth = fullWidth - (MORPH_CIRCLE + MORPH_GAP) * (1f - focusFraction.coerceIn(0f, 1f))
         val capsuleWidth = MORPH_CIRCLE + (fieldWidth - MORPH_CIRCLE) * openFraction
 
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
+                .graphicsLayer {
+                    val f = focusFraction.coerceIn(0f, 1f)
+                    alpha = 1f - f
+                    scaleX = 1f - 0.35f * f
+                    scaleY = 1f - 0.35f * f
+                }
                 .size(MORPH_CIRCLE)
                 .clip(shape)
                 .then(glass)
                 .clickable(
+                    enabled = focusFraction < 0.5f,
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = {

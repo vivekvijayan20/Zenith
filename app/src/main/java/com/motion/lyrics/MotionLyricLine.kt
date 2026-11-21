@@ -291,7 +291,8 @@ private fun DrawScope.drawMotion(
         val pivot = Offset(l + w / 2f, (lay.top[i] + lay.bottom[i]) / 2f)
         val g = lay.glyphs[i]
         val tl = Offset(l, lay.glyphY[i])
-        val dist = rt.head - lay.charIndex[i]
+        // Dibagi panjang cluster: sapuan melintasi satu grapheme utuh, bukan per code unit.
+        val dist = (rt.head - lay.charIndex[i]) / lay.charLen[i]
         val shadow: Shadow? = null
         // Kata sudah selesai dinyanyikan: huruf terakhirnya wajib menyala penuh.
         val wIdx = lay.wordIndex[i]

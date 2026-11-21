@@ -90,8 +90,12 @@ internal data class MacOSPopupSpec(
     val heightLag: Float = 1.35f,
     /** Perspective tilt, in degrees, at progress 0, toward the side the trigger is on. Negative flips it. */
     val foldTilt: Float = 7f,
-    /** How fast the container's alpha reaches 1 (3 = opaque at a third of the way). */
-    val alphaRamp: Float = 3f,
+    /**
+     * How fast the container's alpha reaches 1 (8 = opaque at an eighth of the way).
+     * Steep on purpose: on close the card must stay opaque while it folds and only
+     * vanish once it has shrunk onto its trigger, not a third of the way in.
+     */
+    val alphaRamp: Float = 8f,
     /** The content fades in between these two progress values. */
     val contentFadeStart: Float = 0.22f,
     val contentFadeEnd: Float = 0.72f,
@@ -107,7 +111,7 @@ internal data class MacOSPopupSpec(
     val closeSpring: SpringSpec<Float> = spring(
         dampingRatio = 1f,
         stiffness = 480f,
-        visibilityThreshold = 0.01f,
+        visibilityThreshold = 0.004f,
     ),
     val scrimColor: Color = Color.Black.copy(alpha = 0.32f),
 )

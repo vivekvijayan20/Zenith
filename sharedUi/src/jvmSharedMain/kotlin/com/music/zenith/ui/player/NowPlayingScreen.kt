@@ -5565,6 +5565,20 @@ Spacer(Modifier.width(12.dp))
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(top = HEADER_HEIGHT)
+                                    // Strip lirik mati: slotnya di deck tinggal ruang kosong,
+                                    // jadi panel queue ikut turun menutupinya (digambar di
+                                    // bawah deck) alih-alih berhenti jauh di atas scrubber.
+                                    .layout { measurable, constraints ->
+                                        if (lyricStripEnabled || !constraints.hasBoundedHeight) {
+                                            val p = measurable.measure(constraints)
+                                            return@layout layout(p.width, p.height) { p.place(0, 0) }
+                                        }
+                                        val h = constraints.maxHeight + 36.dp.roundToPx()
+                                        val placeable = measurable.measure(
+                                            constraints.copy(minHeight = h, maxHeight = h),
+                                        )
+                                        layout(placeable.width, constraints.maxHeight) { placeable.place(0, 0) }
+                                    }
                                     .offset {
                                         if (queuePanelShown) IntOffset.Zero else IntOffset(100_000, 0)
                                     }
@@ -5613,6 +5627,7 @@ Spacer(Modifier.width(12.dp))
                                     collapsePlayerOnScroll = true,
                                     onRevealPlayer = { queueControlsOpen = true },
                                     onHidePlayer = { queueControlsOpen = false },
+                                    bottomFade = if (lyricStripEnabled) 28.dp else 14.dp,
                                     modifier = Modifier.weight(1f),
                                 )
                             }
