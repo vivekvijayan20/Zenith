@@ -377,15 +377,50 @@ private fun DrawScope.drawHeldClipFrame(image: ImageBitmap, clip: HeldClipFrame)
         dstSize = IntSize(width.roundToInt().coerceAtLeast(1), height.roundToInt().coerceAtLeast(1)),
     )
     if (clip.fade > 0.001f) {
+        drawTunedFadeMask(endY = height, fadeFraction = clip.fade.coerceAtMost(1f), shown = 1f)
+    }
+}
+
+/**
+ * Mask pudar bawah yang mengikuti [CanvasFadeTuning] (tinggi, lekuk V, bentuk V, power),
+ * sama dengan yang dipakai klip hidup, supaya cover statis dan klip tampil identik.
+ * [shown] 1 = pudar penuh, 0 = tanpa pudar.
+ */
+private fun DrawScope.drawTunedFadeMask(endY: Float, fadeFraction: Float, shown: Float) {
+    if (size.width <= 0f || size.height <= 0f || endY <= 0f || fadeFraction <= 0.001f) return
+    val fadeH = (endY * fadeFraction.coerceAtMost(1f) * CanvasFadeTuning.effectiveHeight())
+        .coerceAtLeast(1f)
+    val lift = (fadeH + endY * 0.15f) * CanvasFadeTuning.effectiveCurve()
+    val curveExp = CanvasFadeTuning.curveExp.floatValue.coerceAtLeast(0.5f)
+    val power = CanvasFadeTuning.power.floatValue.coerceAtLeast(0.1f)
+    val stops = Array(FADE_CURVE_STOPS + 1) { i ->
+        val t = i / FADE_CURVE_STOPS.toFloat()
+        val kept = (1f - smootherStep(t)).pow(power)
+        t to Color.Black.copy(alpha = 1f - shown * (1f - kept))
+    }
+    val columns = if (lift < 1f) 1 else 64
+    for (c in 0 until columns) {
+        val left = (size.width * c / columns).roundToInt().toFloat()
+        val right = (size.width * (c + 1) / columns).roundToInt().toFloat()
+        val u = if (columns == 1) 0f else (c + 0.5f) / columns * 2f - 1f
+        val edge = if (u < 0f) -u else u
+        val startY = endY - fadeH - lift * edge.pow(curveExp)
+        val slope = if (columns == 1) {
+            0f
+        } else {
+            val dy = -lift * curveExp * edge.pow(curveExp - 1f) * 2f / size.width
+            if (u < 0f) -dy else dy
+        }
+        val centerX = (left + right) / 2f
+        val span = fadeH / (1f + slope * slope)
         drawRect(
-            brush = Brush.verticalGradient(
-                colorStops = Array(FADE_CURVE_STOPS + 1) { i ->
-                    val t = i / FADE_CURVE_STOPS.toFloat()
-                    t to Color.Black.copy(alpha = 1f - smootherStep(t))
-                },
-                startY = height * (1f - clip.fade.coerceAtMost(1f)),
-                endY = height,
+            brush = Brush.linearGradient(
+                *stops,
+                start = Offset(centerX, startY),
+                end = Offset(centerX - slope * span, startY + span),
             ),
+            topLeft = Offset(left, 0f),
+            size = Size(right - left, size.height),
             blendMode = BlendMode.DstIn,
         )
     }
@@ -1204,6 +1239,8 @@ fun NowPlayingScreen(
     val canvasRenderedState = remember(canvas?.url) { mutableStateOf(false) }
     var canvasRendered by canvasRenderedState
     var canvasFrame by remember(canvas?.url) { mutableStateOf<ImageBitmap?>(null) }
+    // Frame terbaru dari klip, tanpa throttle: dipakai tepi cover agar mengikuti video.
+    var canvasEdgeFrame by remember(canvas?.url) { mutableStateOf<ImageBitmap?>(null) }
     // Spotify's phone presentation starts with the full control deck over its
     // video. It leaves on a Canvas tap, or after the optional idle timeout.
     var spotifyCanvasControlsOpen by remember(canvas?.url) { mutableStateOf(true) }
@@ -1228,10 +1265,22 @@ fun NowPlayingScreen(
     // mesh keeps its own (its colours are quantised, not blurred).
     val liveReduceBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val liveReduceMotion by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
-    val meshRefreshMs: Long? = if (legacyMesh || liveReduceBlur || liveReduceMotion) {
-        MESH_REFRESH_MS
-    } else {
-        LIVE_BLUR_REFRESH_MS
+    val meshRefreshMs: Long? = when {
+        liveReduceMotion -> MESH_REFRESH_MS
+        legacyMesh -> LIVE_BLUR_REFRESH_MS
+        liveReduceBlur -> MESH_REFRESH_MS
+        else -> LIVE_BLUR_REFRESH_MS
+    }
+    // Tepi cover menerima setiap frame; palet mesh tetap diperbarui pelan
+    // (MESH_REFRESH_MS) karena kuantisasinya mahal.
+    val meshFrameClock = remember(canvas?.url) { longArrayOf(0L) }
+    val acceptCanvasFrame: (ImageBitmap) -> Unit = { frame ->
+        canvasEdgeFrame = frame
+        val nowMs = System.nanoTime() / 1_000_000L
+        if (!legacyMesh || canvasFrame == null || nowMs - meshFrameClock[0] >= MESH_REFRESH_MS) {
+            meshFrameClock[0] = nowMs
+            canvasFrame = frame
+        }
     }
 
     val scrub = rememberPlayerScrub(song.videoId, position, durationMs)
@@ -1930,8 +1979,13 @@ fun NowPlayingScreen(
 
     // Returning from a subview, or regaining the TextureView after backgrounding,
     // is a fresh visit, so show the deck again before any optional countdown.
-    LaunchedEffect(spotifyCanvasPresentation, lyricsOpen, queueOpen) {
-        if (spotifyCanvasPresentation && !lyricsOpen && !queueOpen) {
+    // Menutup lirik/antrean di atas Spotify Canvas layar penuh: dek kaca bawah ikut
+    // masuk sejak awal gerakan kembali, bukan baru setelah setengah jalan, supaya blur
+    // bawah tidak putus antara blur penuh panel dan dek.
+    val deckReturning = clipFullscreen && canvasRendered && !lyricsOpen && !queueOpen &&
+        !queueDragging && collapseStarted
+    LaunchedEffect(spotifyCanvasPresentation, deckReturning, lyricsOpen, queueOpen) {
+        if ((spotifyCanvasPresentation || deckReturning) && !lyricsOpen && !queueOpen) {
             spotifyCanvasControlsOpen = true
         }
     }
@@ -1983,7 +2037,9 @@ fun NowPlayingScreen(
         ((heroHeight - heroTitleDrop).value * HERO_FADE_FRACTION / clipBottom.value).coerceIn(0f, 1f)
     } else 0f
     heroClipGeometry.portrait = clipPortrait
-    heroClipGeometry.bannerHeightPx = with(density) { heroHeight.toPx() }
+    heroClipGeometry.bannerHeightPx = with(density) {
+        heroHeight.toPx() + CanvasFadeTuning.offsetDp.floatValue.coerceAtLeast(0f).dp.toPx()
+    }
     heroClipGeometry.fade = if (clipPortrait) clipFadeFraction else HERO_FADE_FRACTION
     val statusBarTop = stableStatusBarInsets().asPaddingValues().calculateTopPadding()
     // What sits between the status bar and the artwork: the drag strip. Read
@@ -2492,8 +2548,11 @@ fun NowPlayingScreen(
     // on) juga harus jadi sumber blur live untuk popup dan menu di atasnya. Tanpa ini
     // spotifyCanvasPresentation sudah false begitu panel terbuka (heroClip lepas di
     // p >= 0.5), sehingga popup jatuh ke still statis.
+    // clipHeldForPanels menahan backdrop live sepanjang animasi kembali ke player utama,
+    // supaya blur tidak putus lalu menyala lagi saat panel menutup.
     val liveBackdropOn = spotifyCanvasPresentation ||
-        (liveCanvasPanels && clipFullscreen && canvasRendered && (lyricsOpen || queueOpen))
+        (liveCanvasPanels && clipFullscreen && canvasRendered &&
+            (lyricsOpen || queueOpen || clipHeldForPanels))
     val reportLiveCanvas by rememberUpdatedState(onLiveCanvasChanged)
     LaunchedEffect(liveBackdropOn) { reportLiveCanvas(liveBackdropOn) }
     DisposableEffect(Unit) { onDispose { reportLiveCanvas(false) } }
@@ -2984,9 +3043,10 @@ fun NowPlayingScreen(
                 // Spotify layar penuh, live blur off: alas panel HANYA blur frame beku
                 // klipnya sendiri. Cover lagu tidak boleh tampil sama sekali, juga bukan
                 // sebagai cadangan selagi blur frame belum siap.
-                // Live blur off: Spotify Canvas memakai jalur default (blur cover statis +
-                // sleeve terbang ke header), bukan lagi blur frame beku klip.
-                val spotifyFrameOnly = false
+                // Live blur off: Spotify Canvas melebur mulus ke blur frame beku klipnya
+                // sendiri, dan cover tampil diam (fade) di header, tidak terbang.
+                val spotifyFrameOnly = spotifyCanvasOnPhone &&
+                    canvas?.source == CanvasSource.SPOTIFY && !liveCanvasPanels
                 // Blur frame ditahan utuh selama panel terbuka dan selama collapse
                 // (masuk maupun keluar), tepat di bawah klip yang melebur.
                 val spotifyFrameHold = spotifyFrameOnly && (canvasPanelMesh || collapseStarted) &&
@@ -3059,6 +3119,30 @@ fun NowPlayingScreen(
                         colorFadeMillis = 3_500,
                         modifier = Modifier.graphicsLayer { alpha = 1f - fullArtworkBackdropAlpha },
                     )
+                    // Sambungan tepi cover tetap tampil di lagu ber-canvas (canvasHero)
+                    // walau "Sampul layar penuh" dimatikan; tanpa canvas tetap ikut setelan.
+                    if ((fullBleedArt || canvasHero) && heroMode) {
+                        val edgeAlpha by animateFloatAsState(
+                            targetValue = if (!lyricsOpen && !queueOpen) 1f else 0f,
+                            animationSpec = tween(durationMillis = 300),
+                            label = "coverEdgeTint",
+                        )
+                        CoverEdgeBackdrop(
+                            edge = meshPalette?.edge.orEmpty(),
+                            tint = meshPalette?.takeUnless { it.light }?.colors?.firstOrNull(),
+                            frame = { canvasEdgeFrame },
+                            frozen = dockMoving || collapseStarted,
+                            seam = {
+                                with(density) {
+                                    heroHeight.toPx() +
+                                        CanvasFadeTuning.offsetDp.floatValue.coerceAtLeast(0f).dp.toPx()
+                                }
+                            },
+                            modifier = Modifier.graphicsLayer {
+                                alpha = (1f - fullArtworkBackdropAlpha) * edgeAlpha
+                            },
+                        )
+                    }
                 }
                 if (canvasMeshAlpha > 0.001f) {
                     FullArtworkBlurBackdrop(
@@ -3146,7 +3230,7 @@ fun NowPlayingScreen(
                                         // Live blur off: klip bertahan utuh sampai blur
                                         // frame beku-nya siap, lalu melebur ke sana.
                                         if (spotifyFrameOnly && (lyricsOpen || queueOpen)) spotifyFrameHandoff
-                                        else 1f - smootherStep(((p() - 0.05f) / 0.3f).coerceIn(0f, 1f))
+                                        else 1f - smootherStep(((p() - 0.05f) / 0.55f).coerceIn(0f, 1f))
                                     } else (1f - 2f * p()).coerceIn(0f, 1f)
                                     ) * dockFade() * clipMixFade.value
                             },
@@ -3174,15 +3258,16 @@ fun NowPlayingScreen(
                             },
                             onFrameCaptured = {
                                 if (!clipFullscreen && !tabletArtworkBackdrop &&
-                                    !lyricsOpen && !queueOpen && !queueDragging
-                                ) canvasFrame = it
+                                    !lyricsOpen && !queueOpen && !queueDragging &&
+                                    !dockMoving && !collapseStarted
+                                ) acceptCanvasFrame(it)
                             },
                             // The full-screen Spotify video has no mesh to re-tint.
                             // Keeping this null also removes the old three-second GPU
                             // readback cadence from this provider alone.
                             refreshFrameEveryMs = if (
                                 clipFullscreen || tabletArtworkBackdrop || lyricsOpen || queueOpen ||
-                                queueDragging || dockMoving
+                                queueDragging || dockMoving || collapseStarted
                             ) {
                                 null
                             } else {
@@ -3277,8 +3362,7 @@ fun NowPlayingScreen(
                 // Live blur on: the clip itself is blurred live on its TextureView; no static still.
 
                 // Popup debug untuk menyetel fade bawah klip secara langsung.
-                // Matikan lewat CanvasFadeTuning.ENABLED bila sudah tidak dibutuhkan.
-                if (CanvasFadeTuning.ENABLED && heroClipMounted != null && !dockMoving && !lyricsOpen && !queueOpen) {
+                if (CanvasFadeTuning.unlocked.value && (heroClipMounted != null || fullBleedArt) && !dockMoving && !lyricsOpen && !queueOpen) {
                     CanvasFadeDebugTuner()
                 }
 
@@ -3413,15 +3497,36 @@ fun NowPlayingScreen(
                 // Selagi frame canvas lama menutup layar, kaca dan dim hidup ikut
                 // tersembunyi (kaca di dalam frame sudah menggantikannya), lalu naik
                 // pelan seiring frame memudar — bukan langsung tampil memblur video baru.
-                val liveDeckShare: () -> Float = {
-                    if (dissolve.fullFrame != null && dissolve.fullProgress < 1f) {
-                        smootherStep(dissolve.fullProgress)
+                // Live blur off, masuk ke panel: dek bertahan selama klip belum selesai
+                // melebur ke blur frame beku, supaya bagian bawah tidak sempat tajam.
+                val deckHandingOff by remember(spotifyFrameOnly, lyricsOpen, queueOpen) {
+                    derivedStateOf {
+                        spotifyFrameOnly && (lyricsOpen || queueOpen) && spotifyFrameHandoff > 0.001f
+                    }
+                }
+                val deckShown = spotifyCanvasPresentation || deckReturning || deckHandingOff
+                // Dek ikut memudar bersama klip saat klip melebur ke blur beku.
+                val deckFollowsClip: () -> Float = {
+                    if (spotifyFrameOnly && (lyricsOpen || queueOpen)) spotifyFrameHandoff else 1f
+                }
+                // Live blur off, kembali: dim dek baru naik seiring klip tajam muncul,
+                // tidak menggelapkan blur beku lebih dulu.
+                val deckDimFollow: () -> Float = {
+                    if (spotifyFrameOnly && deckReturning) {
+                        1f - smootherStep(((p() - 0.05f) / 0.55f).coerceIn(0f, 1f))
                     } else {
                         1f
                     }
                 }
+                val liveDeckShare: () -> Float = {
+                    (if (dissolve.fullFrame != null && dissolve.fullProgress < 1f) {
+                        smootherStep(dissolve.fullProgress)
+                    } else {
+                        1f
+                    }) * deckFollowsClip()
+                }
                 AnimatedVisibility(
-                    visible = spotifyCanvasPresentation && spotifyCanvasControlsOpen,
+                    visible = deckShown && spotifyCanvasControlsOpen,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
@@ -3498,15 +3603,15 @@ fun NowPlayingScreen(
                 // under it: the deck's blur samples the video layer itself, so a dim
                 // beneath it never reached the glass and the deck stayed bright.
                 val spotifyCanvasDim = animateFloatAsState(
-                    targetValue = if (spotifyCanvasPresentation && spotifyCanvasControlsOpen) 0.5f else 0f,
+                    targetValue = if (deckShown && spotifyCanvasControlsOpen) 0.5f else 0f,
                     animationSpec = tween(SPOTIFY_CANVAS_CONTROLS_ANIMATION_MS),
                     label = "spotifyCanvasDim",
                 )
                 val spotifyCanvasDimShowing by remember { derivedStateOf { spotifyCanvasDim.value > 0f } }
-                if (spotifyCanvasPresentation || spotifyCanvasDimShowing) {
+                if (deckShown || spotifyCanvasDimShowing) {
                     Box(
                         Modifier.matchParentSize()
-                            .graphicsLayer { alpha = spotifyCanvasDim.value * liveDeckShare() }
+                            .graphicsLayer { alpha = spotifyCanvasDim.value * liveDeckShare() * deckDimFollow() }
                             .background(Color.Black),
                     )
                 }
@@ -4010,12 +4115,10 @@ fun NowPlayingScreen(
                             val thumb = Rect(Offset(fromStart(0f, thumbW), 0f), Size(thumbW, thumbH))
                             lerp(video, thumb, p())
                         }
-                        // Spotify layar penuh + live blur ON: cover tidak terbang ke header, ia
-                        // langsung diam di posisi header dan hanya fade in/out di tempat.
-                        // Live blur OFF: cover terbang ke header seperti default.
+                        // Spotify layar penuh (live blur ON maupun OFF): cover tidak terbang ke
+                        // header, ia langsung diam di posisi header dan hanya fade in/out di tempat.
                         fun spotifyCoverInPlace(): Boolean =
-                            clipFullscreen && liveCanvasPanels &&
-                                (lyricsOpen || queueOpen || collapseStarted)
+                            clipFullscreen && (lyricsOpen || queueOpen || collapseStarted)
                         fun sleeveRect(): Rect {
                             val card = cardRect()
                             if (spotifyCoverInPlace()) {
@@ -4034,7 +4137,8 @@ fun NowPlayingScreen(
                                     // is, from the same top edge.
                                     size = Size(
                                         playerBounds.width.toFloat(),
-                                        stillBottomPx().takeIf { it > 0f } ?: heroHeight.roundToPx().toFloat(),
+                                        (stillBottomPx().takeIf { it > 0f } ?: heroHeight.roundToPx().toFloat()) +
+                                            CanvasFadeTuning.offsetDp.floatValue.coerceAtLeast(0f).dp.toPx(),
                                     ),
                                 )
                             }
@@ -4351,7 +4455,12 @@ fun NowPlayingScreen(
                                     // again by the time it unmounts.
                                     // Whole while the clip's still is standing in for it.
                                     alpha = (
-                                        if (liveCanvasPanels && (lyricsOpen || queueOpen || clipHeldForPanels)) {
+                                        if (clipFullscreen && !liveCanvasPanels &&
+                                            (lyricsOpen || queueOpen || collapseStarted)
+                                        ) {
+                                            // Live blur off: cover fade in/out di header, tanpa terbang.
+                                            smootherStep(((p() - 0.4f) / 0.6f).coerceIn(0f, 1f))
+                                        } else if (liveCanvasPanels && (lyricsOpen || queueOpen || clipHeldForPanels)) {
                                             // The clip is blurred live behind the panel, both ways. A
                                             // full-screen Spotify clip's cover does not fly: it fades in
                                             // at the header on the way in and out again on the way back.
@@ -4452,18 +4561,11 @@ fun NowPlayingScreen(
                                         )
                                     }
                                     if (shown > 0f) {
-                                        drawRect(
-                                            // Along smootherstep, not a straight ramp,
-                                            // so neither end of the dissolve shows as a line.
-                                            brush = Brush.verticalGradient(
-                                                colorStops = Array(FADE_CURVE_STOPS + 1) { i ->
-                                                    val t = i / FADE_CURVE_STOPS.toFloat()
-                                                    t to Color.Black.copy(alpha = 1f - shown * smootherStep(t))
-                                                },
-                                                startY = size.height * (1f - stillFadeFraction()),
-                                                endY = size.height,
-                                            ),
-                                            blendMode = BlendMode.DstIn,
+                                        // Mask yang sama dengan klip hidup (CanvasFadeTuning).
+                                        drawTunedFadeMask(
+                                            endY = size.height,
+                                            fadeFraction = stillFadeFraction(),
+                                            shown = shown,
                                         )
                                     }
                                 },
@@ -4808,12 +4910,15 @@ fun NowPlayingScreen(
                                         onRenderedChanged = { canvasRendered = it },
                                         frameCapturePx = if (legacyMesh) CANVAS_FRAME_CAPTURE_PX else LIVE_BLUR_CAPTURE_PX,
                                         onFrameCaptured = {
-                                            if (!tabletArtworkBackdrop && !lyricsOpen && !queueOpen) {
-                                                canvasFrame = it
+                                            if (!tabletArtworkBackdrop && !lyricsOpen && !queueOpen &&
+                                                !dockMoving && !collapseStarted
+                                            ) {
+                                                acceptCanvasFrame(it)
                                             }
                                         },
                                         refreshFrameEveryMs = if (
-                                            tabletArtworkBackdrop || lyricsOpen || queueOpen || dockMoving
+                                            tabletArtworkBackdrop || lyricsOpen || queueOpen || dockMoving ||
+                                                collapseStarted
                                         ) null else meshRefreshMs,
                                         modifier = Modifier.fillMaxSize(),
                                     )
