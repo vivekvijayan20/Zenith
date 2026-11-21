@@ -339,6 +339,9 @@ import com.music.zenith.data.model.TopPick
 import com.music.zenith.data.model.TopPickKind
 import com.music.zenith.data.model.TopPickMood
 import com.music.zenith.ui.screens.MoodGridPage
+import com.music.zenith.ui.screens.AppSplash
+import com.music.zenith.ui.screens.NewReleasesPage
+import com.music.zenith.ui.screens.ChartsPage
 import com.music.zenith.ui.player.NowPlayingScreen
 import com.music.zenith.ui.player.MusicVideoEngine
 import com.music.zenith.ui.player.PlayerSheetMotion
@@ -426,6 +429,7 @@ class MainActivity : AppCompatActivity() {
         // Likewise for a link tapped or shared from another app — see [MusicLink].
         MusicLink.consume(intent)
         setContent {
+            AppSplash()
             val theme by AppSettings.themeMode.collectAsStateWithLifecycle()
             val appFont by AppSettings.appFont.collectAsStateWithLifecycle()
             val accentColor by AppSettings.accentColor.collectAsStateWithLifecycle()
@@ -870,6 +874,12 @@ private fun ZenithApp(
     /** Whether the track menu was opened from the History screen. */
     var menuFromHistory by remember { mutableStateOf(false) }
     /**
+     * Whether the track menu that is up was opened by holding a row of the
+     * player's queue. It is drawn inside the player like the ⋯ menu, but carries
+     * the queue's own rows instead of the player-only ones.
+     */
+    var menuFromQueue by remember { mutableStateOf(false) }
+    /**
      * The row or card that was held to open the track menu, or null when it
      * was opened any other way. Non-null lifts that item into
      * [HeldContextMenu]; null hangs the menu off [songMenuAnchor] instead —
@@ -902,6 +912,7 @@ private fun ZenithApp(
     /** Holding a row anywhere but the player — the menu without the player's rows. */
     val openSongMenu: (Song) -> Unit = { song ->
         menuFromPlayer = false
+        menuFromQueue = false
         songMenuOrigin = LongPressOrigin.consume()
         songMenuAnchor = MenuAnchor.consume()
         songActions = song
@@ -1113,6 +1124,9 @@ private fun ZenithApp(
     val exploreCharts by viewModel.exploreCharts.collectAsStateWithLifecycle()
     val selectedMoodGenre by viewModel.selectedMoodGenre.collectAsStateWithLifecycle()
     val moodGenreShelves by viewModel.moodGenreShelves.collectAsStateWithLifecycle()
+    val newReleasesState by viewModel.newReleases.collectAsStateWithLifecycle()
+    val chartsPageState by viewModel.charts.collectAsStateWithLifecycle()
+    val chartsCountry by viewModel.chartCountry.collectAsStateWithLifecycle()
     val libraryState by viewModel.library.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val searchSource by viewModel.searchSource.collectAsStateWithLifecycle()
@@ -1479,6 +1493,8 @@ private fun ZenithApp(
     val historyListState = rememberLazyListState()
     val libraryShowAllGridState = rememberLazyGridState()
     val moodsGridState = rememberLazyGridState()
+    val newReleasesListState = rememberLazyListState()
+    val chartsListState = rememberLazyListState()
     val searchListState = rememberLazyListState()
     val currentListState = when (selectedTab) {
         TAB_HOME -> homeListState
@@ -2180,6 +2196,13 @@ private fun ZenithApp(
     }
     val onSongSwipe: (Song) -> Unit = { song ->
         if (AppSettings.swipeToPlayNext.value) playNext(song) else addToQueue(song)
+    }
+    // Where a queue row's song sits in the live queue right now, looked up by its
+    // entry id so a queue that moved while the menu was open is still right.
+    val queueIndexOf: (Song) -> Int = { song ->
+        val q = player.queue
+        val byEntry = song.queueEntryId?.let { id -> q.indexOfFirst { it.queueEntryId == id } } ?: -1
+        if (byEntry >= 0) byEntry else q.indexOfFirst { it.videoId == song.videoId }
     }
 
     /**
@@ -2889,7 +2912,7 @@ private fun ZenithApp(
             windowHeight = windowHeight,
             // A canvas under the ⋯ menu holds still. Asked, not passed — see
             // the parameter.
-            menuOpen = { songActions != null && menuFromPlayer && songMenuOrigin == null },
+            menuOpen = { songActions != null && (menuFromPlayer || menuFromQueue) && songMenuOrigin == null },
             onLiveCanvasChanged = { playerLiveCanvas = it },
             onDismissPlayer = dismissPlayer,
             isPlaying = player.isPlaying,
@@ -2993,12 +3016,22 @@ private fun ZenithApp(
             },
             onRemoveFromQueue = { controller?.removeMediaItem(it) },
             onMoveInQueue = { from, to -> controller?.moveMediaItem(from, to) },
+            onOpenQueueMenu = { queued, _ ->
+                menuFromPlayer = false
+                menuFromQueue = true
+                songMenuOrigin = null
+                songMenuAnchor = MenuAnchor.consume()
+                songActions = queued
+                // Same still of the player the ⋯ menu blurs.
+                if (!AppSettings.reduceDynamicBlur.value && !playerLiveCanvas) playerBackdrop.capture()
+            },
             onQueueDragActiveChange = { active -> controller?.setQueueDragActive(active) },
             // The enriched copy, not player.song — otherwise the menu
             // hides the album and artist rows even once their browse
             // ids have been resolved.
             onOpenMenu = {
                 menuFromPlayer = true
+                menuFromQueue = false
                 songMenuOrigin = null
                 songMenuAnchor = MenuAnchor.consume()
                 songActions = song
@@ -3302,6 +3335,22 @@ private fun ZenithApp(
                     val pageDetailListState = remember(key) {
                         detailListStates.getOrPut(key) { LazyListState() }
                     }
+                    val onExploreShelfClick: (ShelfItem, String) -> Unit = { item, shelfTitle ->
+                        val song = shelfSong(item)
+                        val browseId = item.browseId
+                        when {
+                            song != null -> playRadio(
+                                song,
+                                QueueSource(shelfTitle, PlaybackSourceType.HOME),
+                            )
+                            browseId != null -> viewModel.openDetail(
+                                browseId = browseId,
+                                title = item.title,
+                                subtitle = item.subtitle,
+                                thumbnailUrl = item.thumbnailUrl,
+                            )
+                        }
+                    }
                     val pageContent: @Composable () -> Unit = {
                         if (pageRoute == AppRoute.History) {
                             HistoryScreen(
@@ -3341,6 +3390,32 @@ private fun ZenithApp(
                             MoodGridPage(
                                 gridState = moodsGridState,
                                 onClick = playMood,
+                                contentPadding = listPadding,
+                            )
+                        } else if (pageRoute == AppRoute.NewReleases) {
+                            NewReleasesPage(
+                                state = newReleasesState,
+                                listState = newReleasesListState,
+                                onLoad = { viewModel.loadNewReleases() },
+                                onRetry = { viewModel.loadNewReleases(force = true) },
+                                onShelfItemClick = onExploreShelfClick,
+                                onShelfItemLongPress = onShelfLongPress,
+                                currentSong = player.song,
+                                isPlaying = player.isPlaying,
+                                contentPadding = listPadding,
+                            )
+                        } else if (pageRoute == AppRoute.Charts) {
+                            ChartsPage(
+                                state = chartsPageState,
+                                country = chartsCountry,
+                                listState = chartsListState,
+                                onLoad = { viewModel.loadCharts() },
+                                onRetry = { viewModel.loadCharts(force = true) },
+                                onCountryChange = { viewModel.loadCharts(it) },
+                                onShelfItemClick = onExploreShelfClick,
+                                onShelfItemLongPress = onShelfLongPress,
+                                currentSong = player.song,
+                                isPlaying = player.isPlaying,
                                 contentPadding = listPadding,
                             )
                         } else if (pageRoute == AppRoute.Replay) {
@@ -3860,6 +3935,9 @@ private fun ZenithApp(
                                 },
                                 onShelfItemLongPress = onShelfLongPress,
                                 refreshing = MainViewModel.Feed.EXPLORE in refreshing,
+                                onNewReleases = { navigator.push(AppRoute.NewReleases) },
+                                onCharts = { navigator.push(AppRoute.Charts) },
+                                onMoods = { selectedTab = TAB_SEARCH },
                                 onRefresh = { viewModel.refresh(MainViewModel.Feed.EXPLORE) },
                                 pullState = explorePull,
                                 contentPadding = listPadding,
@@ -4313,6 +4391,8 @@ private fun ZenithApp(
                         is AppRoute.LibraryShowAll -> route.shelf.title
                         is AppRoute.ArtistShelf -> route.shelf.title
                         AppRoute.Moods -> stringResource(R.string.find_your_mood)
+                        AppRoute.NewReleases -> stringResource(R.string.shelf_new_releases)
+                        AppRoute.Charts -> "Charts"
                         AppRoute.AccountScrobbling -> stringResource(R.string.account_scrobbling)
                         AppRoute.Sources -> stringResource(R.string.sources)
                         AppRoute.ListenTogether -> stringResource(R.string.listen_together)
@@ -5068,7 +5148,7 @@ private fun ZenithApp(
         // the menus are below, so a menu opening recomposes only this.
         Isolated {
             val pageMenuUp =
-                (songActions != null && songMenuOrigin == null && !(menuFromPlayer && playerRaised)) ||
+                (songActions != null && songMenuOrigin == null && !((menuFromPlayer || menuFromQueue) && playerRaised)) ||
                     (browseActions != null && browseMenuOrigin == null && !browseRenameInSheet) ||
                     songInfoTarget != null ||
                     searchSourceMenu != null
@@ -5245,7 +5325,7 @@ private fun ZenithApp(
             // page the account can actually edit, and only for a row that
             // carries the per-entry id a removal is expressed in.
             val editable = viewModel.editablePlaylist(detail?.browseId)
-                ?.takeIf { !fromPlayer && song.setVideoId != null }
+                ?.takeIf { !(fromPlayer || menuFromQueue) && song.setVideoId != null }
             // Asked of the cache's index off the main thread as the menu opens,
             // so "Remove from cache" is only offered for a track it holds.
             // Re-asked when the cache changes, which is what drops the row
@@ -5262,8 +5342,37 @@ private fun ZenithApp(
                 song = song,
                 signedIn = signedIn,
                 likeStatus = likeStatusOf(song),
-                onPlayNext = { playNext(song); songActions = null },
+                // From the queue, "Play next" moves the entry instead of adding a copy.
+                onPlayNext = if (menuFromQueue) {
+                    {
+                        songActions = null
+                        val at = queueIndexOf(song)
+                        if (at >= 0) controller?.removeMediaItem(at)
+                        playNext(song)
+                    }
+                } else {
+                    { playNext(song); songActions = null }
+                },
                 onAddToQueue = { addToQueue(song); songActions = null },
+                showAddToQueue = !menuFromQueue,
+                onPlayNow = if (menuFromQueue) {
+                    {
+                        songActions = null
+                        val at = queueIndexOf(song)
+                        if (at >= 0) controller?.let { c -> c.seekTo(at, 0L); c.play() }
+                    }
+                } else {
+                    null
+                },
+                onRemoveFromQueue = if (menuFromQueue) {
+                    {
+                        songActions = null
+                        val at = queueIndexOf(song)
+                        if (at >= 0) controller?.removeMediaItem(at)
+                    }
+                } else {
+                    null
+                },
                 onStartRadio = { startRadio(song); songActions = null },
                 // Stays open: the row it replaces itself with is the
                 // progress, and closing the sheet would hide the only
@@ -5271,7 +5380,7 @@ private fun ZenithApp(
                 // From the Cached songs folder, the cache's own copy is the
                 // download — the same as the row's download button there.
                 onDownload = {
-                    if (!fromPlayer && detail?.browseId == CACHE_FOLDER_BROWSE_ID) {
+                    if (!(fromPlayer || menuFromQueue) && detail?.browseId == CACHE_FOLDER_BROWSE_ID) {
                         downloadFromCache(listOf(song))
                     } else {
                         downloadSong(song)
@@ -5324,7 +5433,7 @@ private fun ZenithApp(
                     }
                 } ?: detail?.browseId
                     ?.takeIf {
-                        !fromPlayer && com.music.zenith.data.spotify.LocalPlaylistStore.getPlaylist(it) != null
+                        !(fromPlayer || menuFromQueue) && com.music.zenith.data.spotify.LocalPlaylistStore.getPlaylist(it) != null
                     }
                     ?.let { id ->
                         {
@@ -5333,7 +5442,7 @@ private fun ZenithApp(
                         }
                     }
                     ?: detail?.browseId
-                    ?.takeIf { !fromPlayer && song.localUri != null && OfflinePlaylists.isOfflinePlaylist(it) }
+                    ?.takeIf { !(fromPlayer || menuFromQueue) && song.localUri != null && OfflinePlaylists.isOfflinePlaylist(it) }
                     ?.let { id ->
                         {
                             songActions = null
@@ -5373,7 +5482,7 @@ private fun ZenithApp(
                 showSleepTimer = fromPlayer,
                 // Song Info: menu langsung menutup, popup-nya tampil sendiri.
                 onShowSongInfo = { info ->
-                    songInfoBackdrop = if (menuFromPlayer && playerRaised && songMenuOrigin == null) {
+                    songInfoBackdrop = if ((menuFromPlayer || menuFromQueue) && playerRaised && songMenuOrigin == null) {
                         if (playerLiveCanvas) livePlayerBackdrop else playerBackdrop
                     } else {
                         pageBackdrop
@@ -5544,7 +5653,7 @@ private fun ZenithApp(
                     .onSuccess { addSongsSuggestions = it }
                     .onFailure { addSongsSuggestions = emptyList() }
             }
-            val playerMenuUp = (songActions != null && songMenuOrigin == null && menuFromPlayer) ||
+            val playerMenuUp = (songActions != null && songMenuOrigin == null && (menuFromPlayer || menuFromQueue)) ||
                 addSongsOpen || songInfoTarget != null || addonLeftOutOfDownload != null
             LaunchedEffect(playerMenuUp, reduceDynamicBlur) {
                 if (!playerMenuUp || reduceDynamicBlur) {
@@ -5570,7 +5679,7 @@ private fun ZenithApp(
                 },
                 overlay = {
                     IosMenuPopover(
-                        item = songActions?.takeIf { songMenuOrigin == null && menuFromPlayer },
+                        item = songActions?.takeIf { songMenuOrigin == null && (menuFromPlayer || menuFromQueue) },
                         anchor = songMenuAnchor,
                         onDismiss = { songActions = null },
                         backdrop = if (playerLiveCanvas) livePlayerBackdrop else playerBackdrop,
@@ -5712,10 +5821,10 @@ private fun ZenithApp(
             // A player menu goes with the player: left up, it would carry on here,
             // over the page.
             LaunchedEffect(playerRaised) {
-                if (!playerRaised && menuFromPlayer) songActions = null
+                if (!playerRaised && (menuFromPlayer || menuFromQueue)) songActions = null
             }
             IosMenuPopover(
-                item = songActions?.takeIf { songMenuOrigin == null && !(menuFromPlayer && playerRaised) },
+                item = songActions?.takeIf { songMenuOrigin == null && !((menuFromPlayer || menuFromQueue) && playerRaised) },
                 anchor = songMenuAnchor,
                 onDismiss = { songActions = null },
                 backdrop = pageBackdrop,
@@ -7037,7 +7146,7 @@ private fun ActionReveal(visible: Boolean, bounce: Boolean = false, content: @Co
         } else {
             fadeIn(tween(200)) + expandHorizontally(spring(dampingRatio = 1f, stiffness = 400f))
         },
-        exit = fadeOut(tween(140)) + shrinkHorizontally(spring(dampingRatio = 1f, stiffness = 400f)),
+        exit = fadeOut(tween(90)) + shrinkHorizontally(spring(dampingRatio = 1f, stiffness = 1400f)),
     ) {
         content()
     }

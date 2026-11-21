@@ -1950,6 +1950,57 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    private val _newReleases = MutableStateFlow<UiState<List<HomeShelf>>>(UiState.Loading)
+    val newReleases: StateFlow<UiState<List<HomeShelf>>> = _newReleases.asStateFlow()
+
+    /** Loads the New releases page once; [force] reads it again. */
+    fun loadNewReleases(force: Boolean = false) {
+        if (!force && _newReleases.value is UiState.Success) return
+        _newReleases.value = UiState.Loading
+        viewModelScope.launch {
+            _newReleases.value = YtMusicRepository.newReleaseShelves().fold(
+                onSuccess = { shelves ->
+                    if (shelves.isEmpty()) UiState.Error(text(R.string.nothing_to_explore))
+                    else UiState.Success(shelves)
+                },
+                onFailure = { UiState.Error(it.friendly()) },
+            )
+        }
+    }
+
+    private val _charts = MutableStateFlow<UiState<List<HomeShelf>>>(UiState.Loading)
+    val charts: StateFlow<UiState<List<HomeShelf>>> = _charts.asStateFlow()
+
+    private val _chartCountry = MutableStateFlow(
+        java.util.Locale.getDefault().country
+            .takeIf { it in com.music.zenith.ui.screens.CHART_COUNTRY_CODES } ?: "ZZ",
+    )
+    val chartCountry: StateFlow<String> = _chartCountry.asStateFlow()
+
+    private var chartsJob: kotlinx.coroutines.Job? = null
+    private var chartsLoadedFor: String? = null
+
+    /** Loads the charts of [country] ("ZZ" is Global); a country already on screen is left alone. */
+    fun loadCharts(country: String = _chartCountry.value, force: Boolean = false) {
+        if (!force && country == chartsLoadedFor && _charts.value is UiState.Success) return
+        _chartCountry.value = country
+        chartsJob?.cancel()
+        _charts.value = UiState.Loading
+        chartsJob = viewModelScope.launch {
+            _charts.value = YtMusicRepository.chartShelves(country).fold(
+                onSuccess = { shelves ->
+                    if (shelves.isEmpty()) {
+                        UiState.Error(text(R.string.nothing_to_explore))
+                    } else {
+                        chartsLoadedFor = country
+                        UiState.Success(shelves)
+                    }
+                },
+                onFailure = { UiState.Error(it.friendly()) },
+            )
+        }
+    }
+
     /** Tapping a tab should leave any pushed page behind. */
     fun clearDetail() {
         if (_detailStack.value.isNotEmpty()) _detailStack.value = emptyList()

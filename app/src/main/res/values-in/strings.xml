@@ -115,6 +115,7 @@
     <string name="sign_in_youtube_music">Masuk ke YouTube Music</string>
 
     <string name="play_next">Putar berikutnya</string>
+    <string name="queue_menu_remove">Hapus dari antrean</string>
     <string name="queue">Antrean</string>
     <string name="source_setup_required">Ketuk untuk menyelesaikan pengaturan</string>
     <string name="source_unreachable">Tidak dapat dijangkau sekarang · %1$s</string>

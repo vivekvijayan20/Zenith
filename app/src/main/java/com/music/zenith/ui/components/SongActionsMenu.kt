@@ -194,6 +194,12 @@ fun SongActionsMenu(
     onShowSongInfo: ((Song) -> Unit)? = null,
     /** Keeps Add to playlist (and Remove) on the menu without an account, for playlists kept on this device. */
     canAddToPlaylist: Boolean = false,
+    /** Queue rows only: jumps straight to this track. Null hides the queue group. */
+    onPlayNow: (() -> Unit)? = null,
+    /** Queue rows only: takes this track out of the queue. */
+    onRemoveFromQueue: (() -> Unit)? = null,
+    /** False for a track that is already in the queue. */
+    showAddToQueue: Boolean = true,
 ) {
     var showingSongInfo by remember(song.videoId) { mutableStateOf(false) }
     var pickingSleepTimer by remember { mutableStateOf(false) }
@@ -320,6 +326,33 @@ fun SongActionsMenu(
         // Where the track goes next, and what is kept of it. The file rows
         // ride in this group rather than one of their own because for a
         // device file they can all be absent, and a group may not be empty.
+        // A queue row's own actions, ahead of the rest.
+        if (onPlayNow != null || onRemoveFromQueue != null) {
+            if (startsGroup()) IosMenuSeparator()
+            onPlayNow?.let {
+                ActionRow(
+                    icon = SfIcons.Play,
+                    label = stringResource(R.string.play),
+                    accent = palette.accent,
+                    onClick = it,
+                )
+                ActionRow(
+                    icon = SfIcons.PlayNext,
+                    label = stringResource(R.string.play_next),
+                    accent = palette.accent,
+                    onClick = onPlayNext,
+                )
+            }
+            onRemoveFromQueue?.let {
+                ActionRow(
+                    icon = SfIcons.Trash,
+                    label = stringResource(R.string.queue_menu_remove),
+                    accent = palette.accent,
+                    onClick = it,
+                )
+            }
+        }
+
         if (startsGroup()) IosMenuSeparator()
         ActionRow(
             icon = SfIcons.Radio,
@@ -327,18 +360,22 @@ fun SongActionsMenu(
             accent = palette.accent,
             onClick = onStartRadio,
         )
-        ActionRow(
-            icon = SfIcons.PlayNext,
-            label = stringResource(R.string.play_next),
-            accent = palette.accent,
-            onClick = onPlayNext,
-        )
-        ActionRow(
-            icon = SfIcons.PlayLast,
-            label = stringResource(R.string.add_to_queue),
-            accent = palette.accent,
-            onClick = onAddToQueue,
-        )
+        if (onPlayNow == null) {
+            ActionRow(
+                icon = SfIcons.PlayNext,
+                label = stringResource(R.string.play_next),
+                accent = palette.accent,
+                onClick = onPlayNext,
+            )
+        }
+        if (showAddToQueue) {
+            ActionRow(
+                icon = SfIcons.PlayLast,
+                label = stringResource(R.string.add_to_queue),
+                accent = palette.accent,
+                onClick = onAddToQueue,
+            )
+        }
         DownloadRow(song, palette, isOffline, onDownload)
         onRemoveFromCache?.let {
             ActionRow(

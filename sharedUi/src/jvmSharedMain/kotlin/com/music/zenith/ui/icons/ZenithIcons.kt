@@ -76,7 +76,7 @@ object ZenithIcons {
             name = "bc_queue", defaultWidth = 24.dp, defaultHeight = 24.dp,
             viewportWidth = 24f, viewportHeight = 24f,
         ).apply {
-            path(stroke = stroke, strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round) {
+            path(stroke = stroke, strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round) {
                 for (y in listOf(6f, 12f, 18f)) {
                     moveTo(8f, y)
                     lineTo(21f, y)
@@ -151,7 +151,7 @@ object ZenithIcons {
             viewportWidth = 24f, viewportHeight = 24f,
         ).apply {
             path(
-                stroke = stroke, strokeLineWidth = 2f,
+                stroke = stroke, strokeLineWidth = 1.7f,
                 strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round,
             ) {
                 moveTo(6f, 3.5f)

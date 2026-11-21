@@ -399,6 +399,16 @@ object YtMusicRepository {
         .distinctBy { it.browseId }
         .take(LATEST_SINGLES_LIMIT)
 
+    /** The New releases page: "Albums & singles" and whatever sits beside it. */
+    suspend fun newReleaseShelves(): Result<List<HomeShelf>> = call("new-releases") {
+        shelvesOf(NEW_RELEASES_BROWSE_ID).filter { it.items.isNotEmpty() }
+    }
+
+    /** One country's charts page; "ZZ" is Global. */
+    suspend fun chartShelves(country: String): Result<List<HomeShelf>> = call("charts:$country") {
+        InnertubeParser.parseHome(Innertube.browseCharts(country)).filter { it.items.isNotEmpty() }
+    }
+
     /** The server-defined mood and genre categories shown as the Search tab's categories. */
     suspend fun moodAndGenres(): Result<List<MoodGenreSection>> = call("moods-and-genres") {
         InnertubeParser.parseMoodAndGenres(Innertube.browse("FEmusic_moods_and_genres"))

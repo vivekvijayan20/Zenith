@@ -500,7 +500,7 @@ private fun ArtworkPageActions(
             .animateContentSize(
                 animationSpec = spring(
                     dampingRatio = 0.9f,
-                    stiffness = Spring.StiffnessMediumLow,
+                    stiffness = Spring.StiffnessMedium,
                 ),
                 alignment = Alignment.CenterEnd,
             )

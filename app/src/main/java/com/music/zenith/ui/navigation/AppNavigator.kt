@@ -40,6 +40,12 @@ sealed interface AppRoute {
     /** Find Your Mood's Show all: every mood and activity, as a grid. */
     data object Moods : AppRoute
 
+    /** The New tab's "New releases" page: albums and singles, newest first. */
+    data object NewReleases : AppRoute
+
+    /** The New tab's "Charts" page, for one country at a time. */
+    data object Charts : AppRoute
+
     /** One category of Settings, opened from its row on the main Settings page. */
     data class SettingsSection(val category: SettingsCategory) : AppRoute
 
