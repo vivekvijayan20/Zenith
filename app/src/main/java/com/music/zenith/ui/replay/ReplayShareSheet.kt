@@ -222,6 +222,9 @@ internal fun ShareAction(
     saved: Boolean = false,
     /** What it says once [saved]; falls back to [label] when null. */
     savedLabel: String? = null,
+    /** Working on it (a video being made and written out): a spinner and [busyLabel]. */
+    busy: Boolean = false,
+    busyLabel: String? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -263,20 +266,37 @@ internal fun ShareAction(
     ) {
         // The icon and the word crossfade rather than swap on a frame, so the
         // change reads as the button settling into its new state.
-        Crossfade(targetState = saved, label = "shareAction") { isSaved ->
+        val state = when {
+            busy -> ActionState.BUSY
+            saved -> ActionState.SAVED
+            else -> ActionState.IDLE
+        }
+        Crossfade(targetState = state, label = "shareAction") { now ->
             Row(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = if (isSaved) Icons.Rounded.Check else icon,
-                    contentDescription = null,
-                    tint = foreground,
-                    modifier = Modifier.size(19.dp),
-                )
+                if (now == ActionState.BUSY) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(17.dp),
+                        strokeWidth = 2.dp,
+                        color = foreground,
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (now == ActionState.SAVED) Icons.Rounded.Check else icon,
+                        contentDescription = null,
+                        tint = foreground,
+                        modifier = Modifier.size(19.dp),
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = if (isSaved) (savedLabel ?: label) else label,
+                    text = when (now) {
+                        ActionState.BUSY -> busyLabel ?: label
+                        ActionState.SAVED -> savedLabel ?: label
+                        ActionState.IDLE -> label
+                    },
                     color = foreground,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
@@ -287,6 +307,8 @@ internal fun ShareAction(
         }
     }
 }
+
+private enum class ActionState { IDLE, BUSY, SAVED }
 
 internal fun sendIntent(uri: Uri) = Intent(Intent.ACTION_SEND)
     .setType(MIME)

@@ -876,6 +876,9 @@ object AppSettings {
     /** Replaces the Home logo and wordmark with a plain "Home" title. */
     val hideHomeBranding = MutableStateFlow(false)
 
+    /** Shows the Zenith mark on the shared lyrics card. */
+    val lyricsCardLogo = MutableStateFlow(true)
+
     /** Removes music videos from Home, plus any row left with nothing else in it. */
     val hideHomeVideos = MutableStateFlow(false)
 
@@ -1620,6 +1623,7 @@ object AppSettings {
         autoMusicOnly.value = prefs.getBoolean(KEY_AUTO_MUSIC_ONLY, true)
         hideHomeRecents.value = prefs.getBoolean(KEY_HIDE_HOME_RECENTS, false)
         hideHomeBranding.value = prefs.getBoolean(KEY_HIDE_HOME_BRANDING, false)
+        lyricsCardLogo.value = prefs.getBoolean(KEY_LYRICS_CARD_LOGO, true)
         hideHomeVideos.value = prefs.getBoolean(KEY_HIDE_HOME_VIDEOS, false)
         hideHomeTopPicks.value = prefs.getBoolean(KEY_HIDE_HOME_TOP_PICKS, false)
         hideHomeMoods.value = prefs.getBoolean(KEY_HIDE_HOME_MOODS, false)
@@ -2234,6 +2238,11 @@ object AppSettings {
     fun setHideHomeRecents(value: Boolean) {
         hideHomeRecents.value = value
         prefs.edit().putBoolean(KEY_HIDE_HOME_RECENTS, value).apply()
+    }
+
+    fun setLyricsCardLogo(value: Boolean) {
+        lyricsCardLogo.value = value
+        prefs.edit().putBoolean(KEY_LYRICS_CARD_LOGO, value).apply()
     }
 
     fun setHideHomeBranding(value: Boolean) {
@@ -3329,6 +3338,7 @@ object AppSettings {
     private const val KEY_AUTO_MUSIC_ONLY = "auto_music_only"
     private const val KEY_HIDE_HOME_RECENTS = "hide_home_recents"
     private const val KEY_HIDE_HOME_BRANDING = "hide_home_branding"
+    private const val KEY_LYRICS_CARD_LOGO = "lyrics_card_logo"
     private const val KEY_HIDE_HOME_VIDEOS = "hide_home_videos"
     private const val KEY_HIDE_HOME_TOP_PICKS = "hide_home_top_picks"
     private const val KEY_HIDE_HOME_MOODS = "hide_home_moods"

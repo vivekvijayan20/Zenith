@@ -2,6 +2,7 @@ package com.music.zenith.data.lyrics
 
 import android.content.Context
 import android.net.Uri
+import android.provider.MediaStore
 import com.music.zenith.data.DebugLog as Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -73,14 +74,19 @@ object EmbeddedLyrics {
                 ?: return@withContext null
             // The same last pass the network sources get, so a downloaded track
             // and a streamed one draw their backing vocals the same way.
-            LrcLib.parseLrc(raw).takeIf { lines -> lines.any { it.text.isNotBlank() } }
-                ?.withBackgroundVocals()
+            // TTML (Apple's word-timed format) is told apart by its XML header;
+            // everything else is LRC or enhanced LRC.
+            val ttml = isTtml(raw)
+            val parsed = if (ttml) TtmlLyrics.parse(raw) else LrcLib.parseLrc(raw)
+            parsed.takeIf { l -> l.any { it.text.isNotBlank() } }
+                ?.let { if (ttml) it else it.withBackgroundVocals() }
         }
 
     /** The raw LRC text for the file, preferring this app's word-timed field. */
     private fun read(context: Context, uri: Uri): String? =
         sidecar(uri.path.takeIf { uri.scheme == "file" })
             ?: open(context, uri)?.use { fromBytes(it.readAtMost(MAX_TAG_BYTES)) }
+            ?: localSidecar(context, uri)
 
     /**
      * The `lyrics.lrc` written next to the offline package playlist at [path].
@@ -117,6 +123,8 @@ object EmbeddedLyrics {
      */
     internal fun fromBytes(head: ByteArray): String? {
         val found = when {
+            head.startsWith(ID3_MAGIC) -> id3(head)
+            head.startsWith(OGG_MAGIC) -> ogg(head)
             head.startsWith(FLAC_MAGIC) -> flac(head)
             head.startsWith(MATROSKA_MAGIC) -> matroska(head)
             head.isMp4() -> mp4(head)
@@ -219,6 +227,177 @@ object EmbeddedLyrics {
         return String(bytes, dataAt + 12, start + size - (dataAt + 12), Charsets.UTF_8)
     }
 
+    // ---- MP3 (ID3v2) --------------------------------------------------------
+
+    /**
+     * Lirik dari tag ID3v2: frame `USLT` (dipakai hampir semua tagger, isinya
+     * bisa LRC/eLRC/TTML) atau `TXXX` bernama lyrics.
+     */
+    private fun id3(bytes: ByteArray): String? {
+        if (bytes.size < 10) return null
+        val version = bytes[3].toInt() and 0xFF
+        if (version !in 2..4) return null
+        val flags = bytes[5].toInt() and 0xFF
+        val end = minOf(10 + synchsafe(bytes, 6), bytes.size)
+        if (end <= 10) return null
+        var body = bytes.copyOfRange(10, end)
+        if (flags and 0x80 != 0) body = deunsync(body)
+        var pos = 0
+        if (version >= 3 && flags and 0x40 != 0 && body.size >= 4) {
+            pos = if (version == 4) synchsafe(body, 0) else readU32(body, 0).toInt() + 4
+        }
+        val idLen = if (version == 2) 3 else 4
+        val headLen = if (version == 2) 6 else 10
+        var plain: String? = null
+        while (pos >= 0 && pos + headLen <= body.size && body[pos].toInt() != 0) {
+            val id = String(body, pos, idLen, Charsets.ISO_8859_1)
+            val size = when (version) {
+                2 -> ((body[pos + 3].toInt() and 0xFF) shl 16) or
+                    ((body[pos + 4].toInt() and 0xFF) shl 8) or (body[pos + 5].toInt() and 0xFF)
+                3 -> readU32(body, pos + 4).toInt()
+                else -> synchsafe(body, pos + 4)
+            }
+            val frameFlags = if (version == 2) 0 else {
+                ((body[pos + 8].toInt() and 0xFF) shl 8) or (body[pos + 9].toInt() and 0xFF)
+            }
+            val start = pos + headLen
+            if (size < 0 || start + size > body.size) break
+            pos = start + size
+            // Frame terkompresi atau terenkripsi tidak bisa dibaca di sini.
+            val unreadable = when (version) {
+                3 -> frameFlags and 0x00C0 != 0
+                4 -> frameFlags and 0x000C != 0
+                else -> false
+            }
+            if (unreadable || size < 2) continue
+            var data = body.copyOfRange(start, start + size)
+            if (version == 4) {
+                if (frameFlags and 0x0001 != 0 && data.size > 4) data = data.copyOfRange(4, data.size)
+                if (frameFlags and 0x0002 != 0) data = deunsync(data)
+            }
+            when (id) {
+                "USLT", "ULT" -> if (plain == null) plain = id3Lyrics(data)
+                "TXXX", "TXX" -> {
+                    val (name, value) = id3UserText(data) ?: continue
+                    if (value.isBlank()) continue
+                    when (name.uppercase()) {
+                        WORD_LYRICS_FIELD -> return value
+                        "LYRICS", "UNSYNCEDLYRICS" -> if (plain == null) plain = value
+                    }
+                }
+            }
+        }
+        return plain?.takeIf { it.isNotBlank() }
+    }
+
+    /** `USLT`: encoding, language(3), descriptor, then the lyric text. */
+    private fun id3Lyrics(data: ByteArray): String? {
+        if (data.size < 5) return null
+        val encoding = data[0].toInt() and 0xFF
+        val descEnd = id3Terminator(data, 4, encoding)
+        val textStart = descEnd + if (encoding == 1 || encoding == 2) 2 else 1
+        if (textStart >= data.size) return null
+        return id3Decode(data, textStart, data.size, encoding).trimEnd('\u0000')
+            .takeIf { it.isNotBlank() }
+    }
+
+    /** `TXXX`: encoding, description, then the value. */
+    private fun id3UserText(data: ByteArray): Pair<String, String>? {
+        val encoding = data[0].toInt() and 0xFF
+        val nameEnd = id3Terminator(data, 1, encoding)
+        val valueStart = nameEnd + if (encoding == 1 || encoding == 2) 2 else 1
+        if (valueStart > data.size) return null
+        val name = id3Decode(data, 1, nameEnd, encoding)
+        val value = id3Decode(data, valueStart, data.size, encoding).trimEnd('\u0000')
+        return name to value
+    }
+
+    private fun id3Terminator(data: ByteArray, from: Int, encoding: Int): Int {
+        var i = from
+        if (encoding == 1 || encoding == 2) {
+            while (i + 1 < data.size) {
+                if (data[i].toInt() == 0 && data[i + 1].toInt() == 0) return i
+                i += 2
+            }
+            return data.size
+        }
+        while (i < data.size && data[i].toInt() != 0) i++
+        return i
+    }
+
+    private fun id3Decode(data: ByteArray, from: Int, to: Int, encoding: Int): String {
+        if (to <= from) return ""
+        val charset = when (encoding) {
+            0 -> Charsets.ISO_8859_1
+            1 -> Charsets.UTF_16
+            2 -> Charsets.UTF_16BE
+            else -> Charsets.UTF_8
+        }
+        return String(data, from, to - from, charset)
+    }
+
+    private fun synchsafe(b: ByteArray, o: Int): Int =
+        ((b[o].toInt() and 0x7F) shl 21) or ((b[o + 1].toInt() and 0x7F) shl 14) or
+            ((b[o + 2].toInt() and 0x7F) shl 7) or (b[o + 3].toInt() and 0x7F)
+
+    /** Undoes ID3 unsynchronisation: every `FF 00` was `FF`. */
+    private fun deunsync(b: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream(b.size)
+        var i = 0
+        while (i < b.size) {
+            out.write(b[i].toInt())
+            if (b[i] == 0xFF.toByte() && i + 1 < b.size && b[i + 1].toInt() == 0) i++
+            i++
+        }
+        return out.toByteArray()
+    }
+
+    // ---- Ogg Vorbis / Opus --------------------------------------------------
+
+    /** Komentar Vorbis dari header `OpusTags` atau `\u0003vorbis` di halaman awal. */
+    private fun ogg(bytes: ByteArray): String? {
+        val until = minOf(bytes.size, 256 * 1024)
+        bytes.indexOf(OPUS_TAGS, 0, until)?.let {
+            return vorbisComment(bytes, it + OPUS_TAGS.size, bytes.size)
+        }
+        bytes.indexOf(VORBIS_COMMENT_HEADER, 0, until)?.let {
+            return vorbisComment(bytes, it + VORBIS_COMMENT_HEADER.size, bytes.size)
+        }
+        return null
+    }
+
+    // ---- Sidecar files next to a local track --------------------------------
+
+    /** `lagu.ttml`, `lagu.elrc` atau `lagu.lrc` di folder yang sama dengan audionya. */
+    private fun localSidecar(context: Context, uri: Uri): String? {
+        val audio = audioFile(context, uri) ?: return null
+        val siblings = audio.parentFile?.listFiles() ?: return null
+        val base = audio.nameWithoutExtension
+        for (ext in LYRIC_SIDECAR_EXTS) {
+            val file = siblings.firstOrNull {
+                it.isFile && it.extension.equals(ext, ignoreCase = true) && it.nameWithoutExtension == base
+            } ?: continue
+            if (file.length() !in 1..MAX_TAG_BYTES.toLong()) continue
+            val text = runCatching { file.readText() }.getOrNull()?.removePrefix("\uFEFF")
+            if (!text.isNullOrBlank()) return text
+        }
+        return null
+    }
+
+    private fun audioFile(context: Context, uri: Uri): File? {
+        if (uri.scheme == "file") return uri.path?.let(::File)
+        if (uri.scheme != "content") return null
+        return runCatching {
+            context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0)?.let(::File) else null }
+        }.getOrNull()
+    }
+
+    private fun isTtml(text: String): Boolean {
+        val head = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
+        return head.startsWith("<?xml") || head.startsWith("<tt")
+    }
+
     // ---- FLAC ---------------------------------------------------------------
 
     /**
@@ -268,7 +447,7 @@ object EmbeddedLyrics {
             // This app's own field wins outright; the standard one is held in
             // case it turns out to be the only one there.
             if (name == WORD_LYRICS_FIELD && value.isNotBlank()) return value
-            if (name == "LYRICS" && plain == null && value.isNotBlank()) plain = value
+            if ((name == "LYRICS" || name == "UNSYNCEDLYRICS") && plain == null && value.isNotBlank()) plain = value
         }
         return plain
     }
@@ -391,4 +570,9 @@ object EmbeddedLyrics {
     private val LYR_ATOM = byteArrayOf(0xA9.toByte()) + "lyr".toByteArray(Charsets.ISO_8859_1)
     private val ID_TAGNAME = byteArrayOf(0x45, 0xA3.toByte())
     private val ID_TAGSTRING = byteArrayOf(0x44, 0x87.toByte())
+    private val ID3_MAGIC = "ID3".toByteArray(Charsets.US_ASCII)
+    private val OGG_MAGIC = "OggS".toByteArray(Charsets.US_ASCII)
+    private val OPUS_TAGS = "OpusTags".toByteArray(Charsets.US_ASCII)
+    private val VORBIS_COMMENT_HEADER = byteArrayOf(0x03) + "vorbis".toByteArray(Charsets.US_ASCII)
+    private val LYRIC_SIDECAR_EXTS = listOf("ttml", "elrc", "lrc")
 }

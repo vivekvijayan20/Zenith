@@ -841,13 +841,11 @@ private suspend fun TextureView.copyStill(
         },
     )
     val shrink = if (maxSide > 0) minOf(1f, maxSide.toFloat() / maxOf(videoWidth, videoHeight)) else 1f
-    val stillWidth = (videoWidth * scale * shrink).roundToInt().coerceAtLeast(1)
-    val stillHeight = (videoHeight * scale * shrink).roundToInt().coerceAtLeast(1)
-    // A near full-screen ARGB buffer is several MB; allocating and zero-filling
-    // it is not work for the frame the player starts moving on.
-    val bitmap = withContext(Dispatchers.Default) {
-        Bitmap.createBitmap(stillWidth, stillHeight, Bitmap.Config.ARGB_8888)
-    }
+    val bitmap = Bitmap.createBitmap(
+        (videoWidth * scale * shrink).roundToInt().coerceAtLeast(1),
+        (videoHeight * scale * shrink).roundToInt().coerceAtLeast(1),
+        Bitmap.Config.ARGB_8888,
+    )
     val result = runCatching {
         suspendCancellableCoroutine { continuation ->
             val surface = Surface(texture)
@@ -864,12 +862,7 @@ private suspend fun TextureView.copyStill(
             )
         }
     }.getOrDefault(PixelCopy.ERROR_UNKNOWN)
-    if (result == PixelCopy.SUCCESS) {
-        // Uploaded to the GPU now rather than on its first draw, which is the
-        // first frame of the trip.
-        bitmap.prepareToDraw()
-        return bitmap
-    }
+    if (result == PixelCopy.SUCCESS) return bitmap
     Log.w(TAG, "still copy failed ($result), reading the view instead")
     bitmap.recycle()
     return captureAt(maxOf(width, height), clipAspect, contentMode, alignPortraitTop)

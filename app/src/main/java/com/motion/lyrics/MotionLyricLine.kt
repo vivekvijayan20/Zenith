@@ -312,8 +312,11 @@ private fun DrawScope.drawMotion(
             val hx = if (rtl) w - dist * w else dist * w
             val front = feather * 0.6f
             val back = feather * 0.4f
-            val reached = if (rtl) hx - front < w else hx + front > 0f
-            val settled = if (rtl) hx + back <= 0f else hx - back >= w
+            // Before the line's first word the head rests on its first letter;
+            // nothing may be lit yet, or that letter glows ahead of its turn.
+            val waiting = rt.words.isNotEmpty() && rt.head <= rt.words.first().charStart + 0.001f
+            val reached = !waiting && (if (rtl) hx - front < w else hx + front > 0f)
+            val settled = !waiting && (if (rtl) hx + back <= 0f else hx - back >= w)
             if (settled || wordDone) {
                 drawText(g, color = active, topLeft = tl, shadow = shadow)
             } else if (reached) {

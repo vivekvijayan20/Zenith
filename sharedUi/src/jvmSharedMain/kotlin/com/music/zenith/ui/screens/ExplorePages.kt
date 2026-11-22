@@ -128,7 +128,7 @@ private fun ShortcutCard(
             .aspectRatio(1f)
             .instantPressClickable(shape = shape, onClick = onClick)
             .clip(shape)
-            .background(Color.White.copy(alpha = 0.1f), shape)
+            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f), shape)
             .padding(16.dp),
     ) {
         Icon(

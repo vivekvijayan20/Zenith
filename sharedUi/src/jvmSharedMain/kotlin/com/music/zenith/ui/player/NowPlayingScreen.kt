@@ -2408,6 +2408,31 @@ fun NowPlayingScreen(
     fun stillTakesOver(): Boolean = still() != null && CanvasStills.fresh &&
         !(liveCanvasPanels && (lyricsOpen || queueOpen || clipHeldForPanels)) &&
         (collapseStarted || dockMoving || lyricsOpen || queueOpen || queueDragging || !canvasRendered)
+    // Live blur panel aktif: klip tetap jadi latar blur, tetapi yang turun ke header
+    // adalah frame pause-nya (satu konten), lalu melebur ke cover asli di ujung gerakan.
+    fun panelStillLeads(): Boolean = liveCanvasPanels && !clipFullscreen && heroMode &&
+        still() != null && CanvasStills.fresh &&
+        (collapseStarted || lyricsOpen || queueOpen || queueDragging)
+    // Frame pertama yang dibawa kartu saat player mulai bergerak ke mini player diambil
+    // sinkron di frame yang sama, sebelum klip dijeda. Tanpa ini sleeve tak punya frame
+    // selama beberapa frame awal dan jatuh ke thumbnail. Salinan sebenarnya (dengan posisi
+    // klip yang tepat) tetap menggantikannya begitu siap.
+    val stillGrabbedForMove = remember { BooleanArray(1) }
+    SideEffect {
+        val clipUrl = stillClip?.url
+        val atRest = !dockMoving && !collapseStarted && !queueDragging && !lyricsOpen && !queueOpen
+        if (atRest) stillGrabbedForMove[0] = false
+        if (!atRest && !stillGrabbedForMove[0] && clipUrl != null) {
+            stillGrabbedForMove[0] = true
+            val grabbed = canvasFrameGrab.grab?.invoke()
+            if (grabbed != null) {
+                val last = CanvasStills.current?.takeIf { it.url == clipUrl }
+                CanvasStills.current = CanvasStill(clipUrl, grabbed, last?.positionMs ?: 0L)
+                CanvasStills.songKey = stillSongKey
+                CanvasStills.fresh = true
+            }
+        }
+    }
     // A portrait still is the clip's whole picture, not the banner's square:
     // top-aligned across the player's width, as the clip is contained, and as
     // tall. Read off the still, which is there before a reopened clip knows
@@ -3139,13 +3164,9 @@ fun NowPlayingScreen(
                     // Sambungan tepi cover tetap tampil di lagu ber-canvas (canvasHero)
                     // walau "Sampul layar penuh" dimatikan; tanpa canvas tetap ikut setelan.
                     if ((fullBleedArt || canvasHero) && heroMode) {
-                        // Blur layar penuh kedua ini hanya ada di lagu canvas dan seam-nya
-                        // bergerak tiap frame saat player minimize/expand: sembunyikan cepat
-                        // selama bergerak, lalu munculkan lagi setelah menetap.
-                        val edgeMoving = dockMoving || collapseStarted
                         val edgeAlpha by animateFloatAsState(
-                            targetValue = if (!lyricsOpen && !queueOpen && !edgeMoving) 1f else 0f,
-                            animationSpec = if (edgeMoving) tween(durationMillis = 90) else tween(durationMillis = 300),
+                            targetValue = if (!lyricsOpen && !queueOpen) 1f else 0f,
+                            animationSpec = tween(durationMillis = 300),
                             label = "coverEdgeTint",
                         )
                         CoverEdgeBackdrop(
@@ -3222,6 +3243,7 @@ fun NowPlayingScreen(
                                 (dockMoving && CanvasFadeTuning.pausesWhileDocking()) ||
                                 queueDragging ||
                                 (collapseStarted && !(liveCanvasPanels && (lyricsOpen || queueOpen))) ||
+                                (liveCanvasPanels && !clipFullscreen && (lyricsOpen || queueOpen) && !collapseDone) ||
                                 (overlayOpen.value && !clipFullscreen),
                             // Spotify's 9:16 Canvas is the phone background, so it
                             // covers every edge. Other providers retain the contained
@@ -3269,7 +3291,7 @@ fun NowPlayingScreen(
                             // still is never shown there, so a per-frame PixelCopy loop would
                             // only stall the render thread and delay the blur.
                             captureStill = stillMoving && !clipFullscreen &&
-                                !(liveCanvasPanels && (lyricsOpen || queueOpen) && !dockMoving),
+                                !(liveCanvasPanels && collapseDone && (lyricsOpen || queueOpen) && !dockMoving),
                             onStillCaptured = onStillCaptured,
                             onResumed = onClipResumed,
                             frameGrab = if (clipFullscreen) fullFrameGrab else canvasFrameGrab,
@@ -4508,13 +4530,16 @@ fun NowPlayingScreen(
                                             if (clipFullscreen) {
                                                 smootherStep(((p() - 0.4f) / 0.6f).coerceIn(0f, 1f))
                                             } else {
-                                                // Klip non-Spotify ikut bertahan di belakang panel; cover
-                                                // baru muncul saat mengecil jadi header, bukan menutupi klip
-                                                // begitu panel dibuka.
-                                                maxOf(
-                                                    smootherStep(((p() - 0.4f) / 0.6f).coerceIn(0f, 1f)),
-                                                    1f - canvasCover.floatValue,
-                                                )
+                                                // Klip non-Spotify ikut bertahan di belakang panel sebagai
+                                                // latar blur; sleeve membawa frame pause-nya ke header.
+                                                if (panelStillLeads()) {
+                                                    1f
+                                                } else {
+                                                    maxOf(
+                                                        smootherStep(((p() - 0.4f) / 0.6f).coerceIn(0f, 1f)),
+                                                        1f - canvasCover.floatValue,
+                                                    )
+                                                }
                                             }
                                         } else if (stillTakesOver()) 1f
                                         else if (heroClip != null) 1f - canvasCover.floatValue
@@ -4780,8 +4805,16 @@ fun NowPlayingScreen(
                                             } else {
                                                 0f
                                             }
-                                            if (swap > 0f) {
-                                                thumbLayer.alpha = swap
+                                            // Di ujung gerakan ke header lirik/queue, frame pause
+                                            // melebur ke cover asli; arah sebaliknya saat kembali.
+                                            val panelSwap = if (art.loaded && heroMode && canvas != null && !clipFullscreen) {
+                                                smootherStep(((p() - 0.7f) / 0.3f).coerceIn(0f, 1f))
+                                            } else {
+                                                0f
+                                            }
+                                            val blend = maxOf(swap, panelSwap)
+                                            if (blend > 0f) {
+                                                thumbLayer.alpha = blend
                                                 thumbLayer.record { this@drawWithContent.drawContent() }
                                                 drawLayer(thumbLayer)
                                             }

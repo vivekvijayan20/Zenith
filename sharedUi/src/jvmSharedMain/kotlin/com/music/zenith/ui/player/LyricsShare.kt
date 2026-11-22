@@ -62,6 +62,14 @@ data class LyricsShareLine(
     val text: String,
     val subText: String?,
     val isGap: Boolean = false,
+    /**
+     * Where the line is sung in the track, when the lyrics are synced: the share
+     * video plays this stretch of the song. Null for unsynced lyrics and gaps.
+     */
+    val startMs: Long? = null,
+    val endMs: Long? = null,
+    /** The line with its word stamps, so the video animates it as the panel does. */
+    val timing: LyricLine? = null,
 )
 
 /**
@@ -77,6 +85,36 @@ data class LyricsShareRequest(
     val artworkUrl: String?,
     val lines: List<LyricsShareLine>,
 )
+
+/**
+ * The stretch of the track line [index] of [lines] is sung over, for the share
+ * video: from its stamp to the next line's, so a run of picked lines plays as
+ * one take. The last line of a run stops where the provider says it ends (plus
+ * a beat), or at the next stamp, and never runs on through a long outro.
+ */
+internal fun singWindow(lines: List<LyricLine>, index: Int, nextPicked: Int?): Pair<Long, Long>? {
+    val line = lines.getOrNull(index) ?: return null
+    val start = line.timeMs.coerceAtLeast(0L)
+    val nextStamp = lines.getOrNull(index + 1)?.timeMs?.takeIf { it > start }
+    val end = if (nextPicked == index + 1 && nextStamp != null) {
+        nextStamp
+    } else {
+        val tail = line.sungUntilMs?.takeIf { it > start }?.plus(SHARE_TAIL_MS)
+            ?: nextStamp
+            ?: (start + SHARE_LINE_FALLBACK_MS)
+        minOf(tail, nextStamp ?: Long.MAX_VALUE, start + SHARE_LINE_MAX_MS)
+    }
+    return start to end
+}
+
+/** A beat of air after a line's own end, so its last word isn't clipped. */
+private const val SHARE_TAIL_MS = 400L
+
+/** A last line with nothing after it to time it by. */
+private const val SHARE_LINE_FALLBACK_MS = 5_000L
+
+/** Longest one line is held for when it ends a run. */
+private const val SHARE_LINE_MAX_MS = 9_000L
 
 /**
  * How much text one card is allowed to hold: the picked words, in characters.
@@ -246,6 +284,7 @@ internal fun rememberLyricsPicker(
     val share: () -> Unit = {
         val source = lines.orEmpty()
         val chosen = picks.sorted()
+        val synced = source.any { it.timeMs > 0L }
         val picked = buildList {
             chosen.forEachIndexed { position, index ->
                 // A jump over unchosen lines is marked on the card, so the
@@ -256,10 +295,14 @@ internal fun rememberLyricsPicker(
                 }
                 val line = source.getOrNull(index) ?: return@forEachIndexed
                 val sub = subLines?.getOrNull(index)?.text
+                val window = if (synced) singWindow(source, index, chosen.getOrNull(position + 1)) else null
                 add(
                     LyricsShareLine(
                         text = line.text,
                         subText = sub?.takeIf { it.isNotBlank() && it != line.text },
+                        startMs = window?.first,
+                        endMs = window?.second,
+                        timing = line.takeIf { synced },
                     ),
                 )
             }

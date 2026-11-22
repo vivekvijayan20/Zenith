@@ -95,14 +95,29 @@ private val BAR_FIELD_GAP = 14.dp
 /** The field's own end controls: the back arrow and the source switch. */
 private val BAR_FIELD_CONTROL = 44.dp
 
-/** The collapsed row's side margin (28dp) over the open bar's (19dp). */
-private val BAR_INLINE_INSET = 9.dp
+/**
+ * The collapsed row's side margin over the open bar's. Read from the same metrics
+ * GlassNavBar's collapsed row uses, so the two bars line up at the hand-off.
+ */
+private val BAR_INLINE_INSET: Dp
+    get() = maxOf(
+        com.music.zenith.data.settings.GlassBarMetrics.layout.inlineGutter.dp - NAV_BAR_GUTTER,
+        0.dp,
+    )
+
+/** The collapsed row's circles (glyph + 10dp padding each side) and the gap between items. */
+private val BAR_INLINE_CIRCLE: Dp
+    get() = (com.music.zenith.data.settings.GlassBarMetrics.layout.tabIconSize + 20f).dp
+private val BAR_INLINE_GAP: Dp
+    get() = com.music.zenith.data.settings.GlassBarMetrics.layout.inlineGap.dp
 
 /**
- * The mini player's side inset in the collapsed row: gutter + circle + spacing
- * (28 + 48 + 14 = 90dp), less the pill's own 19dp margin.
+ * The mini player's side inset in the collapsed row: the row's margin, the tab
+ * circle and the gap, as GlassNavBar lays them out. Hardcoded numbers here made
+ * the mini player snap wider when the bars swapped after the settings changed.
  */
-private val MINI_INLINE_SIDE = 71.dp
+private val MINI_INLINE_SIDE: Dp
+    get() = BAR_INLINE_INSET + BAR_INLINE_CIRCLE + BAR_INLINE_GAP
 
 /** Isi field baru muncul setelah kapsul mulai melebar, dan hilang sebelum melipat. */
 private fun searchContentAlpha(p: Float): Float = ((p - 0.3f) / 0.6f).coerceIn(0f, 1f)
@@ -376,24 +391,24 @@ fun GlassSearchBar(
         // The pill's width at rest: whatever the Search circle leaves.
         val restLeft = maxWidth - restHeight - BAR_SPACING
         val gap: (Float) -> Dp = { p ->
-            if (inlineStart) BAR_FIELD_GAP else lerpDp(BAR_SPACING, BAR_FIELD_GAP, p)
+            if (inlineStart) lerpDp(BAR_INLINE_GAP, BAR_FIELD_GAP, p) else lerpDp(BAR_SPACING, BAR_FIELD_GAP, p)
         }
         val leftWidth: (Float) -> Dp = { p ->
-            if (inlineStart) BAR_FIELD_CIRCLE else lerpDp(restLeft, BAR_FIELD_CIRCLE, p)
+            if (inlineStart) lerpDp(BAR_INLINE_CIRCLE, BAR_FIELD_CIRCLE, p) else lerpDp(restLeft, BAR_FIELD_CIRCLE, p)
         }
         // Room the last tab's circle leaves behind once the keyboard is up.
         val hideRoom: () -> Dp = { (BAR_FIELD_CIRCLE + BAR_FIELD_GAP) * tabHide() }
         val rightWidth: (Float) -> Dp = { p ->
             val room = fullWidth(p) - leftWidth(p) - gap(p) + hideRoom()
             val w = if (inlineStart) {
-                minOf(maxOf(BAR_FIELD_CIRCLE, lerpDp(BAR_FIELD_CIRCLE, fieldWidth + hideRoom(), p)), room)
+                minOf(maxOf(BAR_INLINE_CIRCLE, lerpDp(BAR_INLINE_CIRCLE, fieldWidth + hideRoom(), p)), room)
             } else {
                 room
             }
             w.coerceAtLeast(0.dp)
         }
         val rowHeight: (Float) -> Dp = { p ->
-            if (inlineStart) BAR_FIELD_HEIGHT else lerpDp(restHeight, BAR_FIELD_HEIGHT, p)
+            if (inlineStart) lerpDp(BAR_INLINE_CIRCLE, BAR_FIELD_HEIGHT, p) else lerpDp(restHeight, BAR_FIELD_HEIGHT, p)
         }
         // Pusat slot tab terakhir terhadap pusat baris tab (baris tab selalu terpusat di
         // kotak yang menyempit): sejauh itu ikonnya meluncur ke tengah lingkaran.
@@ -507,7 +522,7 @@ fun GlassSearchBar(
             // One search glyph for both states: it rests centred in the Search circle
             // and, as the capsule opens, slides left with the capsule's edge into the
             // field's start slot. It is never swapped for a second icon or faded.
-            val restRight = if (inlineStart) BAR_FIELD_CIRCLE else BAR_CIRCLE
+            val restRight = if (inlineStart) BAR_INLINE_CIRCLE else BAR_CIRCLE
             SearchMorphGlyph(
                 open = openState,
                 restColor = selectedColor,
