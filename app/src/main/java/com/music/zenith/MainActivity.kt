@@ -4869,6 +4869,19 @@ private fun ZenithApp(
                                 route == null && detail == null && selectedMoodGenre == null
                             )
                         )
+                    // Tap tab aktif yang sudah di halaman utamanya: gulir mulus ke atas.
+                    // Search dikecualikan (punya perilaku sendiri). Kalau ada rute atau
+                    // detail terbuka, alur di bawah tetap membawa kembali ke root tab.
+                    if (index == selectedTab && index != TAB_SEARCH &&
+                        route == null && detail == null && selectedMoodGenre == null
+                    ) {
+                        val listState = currentListState
+                        if (listState.firstVisibleItemIndex != 0 ||
+                            listState.firstVisibleItemScrollOffset != 0
+                        ) {
+                            scope.launch { listState.animateScrollToItem(0) }
+                        }
+                    }
                     navigator.clear()
                     viewModel.closeMoodGenre()
                     selectedTab = index

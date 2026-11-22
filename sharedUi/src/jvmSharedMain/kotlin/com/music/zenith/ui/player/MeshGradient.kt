@@ -334,7 +334,8 @@ private const val EDGE_DROP_SHARE = 0.34f
 private const val EDGE_TINT_MIX = 0.3f
 private const val EDGE_SMOOTH_MILLIS = 380f
 
-internal fun edgeColorsOf(source: ImageBitmap): List<Color> {
+internal fun edgeColorsOf(original: ImageBitmap): List<Color> {
+    val source = original.withoutLetterbox()
     val w = source.width
     val h = source.height
     if (w < EDGE_BINS * 2 || h < 8) return emptyList()
@@ -634,7 +635,7 @@ fun artworkMeshColors(bitmap: ImageBitmap): List<Color> = paletteOf(bitmap)
  * derived from the art's own colours rather than borrowed.
  */
 private fun paletteOf(source: ImageBitmap): List<Color> {
-    val bitmap = source.bottomWeighted()
+    val bitmap = source.withoutLetterbox().bottomWeighted()
     fun swatchesOf(clearFilters: Boolean): List<Color> {
         val all = paletteSwatches(bitmap, 24, clearFilters)
         val total = all.sumOf { it.population }.coerceAtLeast(1)
@@ -705,6 +706,44 @@ private const val BOTTOM_PALETTE_SHARE = 0.4f
 
 /** How many extra times that foot is counted, so the colours track where the cover meets the backdrop. */
 private const val BOTTOM_PALETTE_COPIES = 1
+
+/** Brightest channel a letterbox bar pixel may have and still count as black. */
+private const val LETTERBOX_MAX_CHANNEL = 14
+
+/**
+ * YouTube's 4:3 thumbnails (`hqdefault`, `sddefault`) carry black bars above and
+ * below the real 16:9 picture, and the player crops them away. Colours must come
+ * from what is shown: left in, the bottom rows read as black and the seam, and
+ * the mesh blobs matched to it, come out black. Only trimmed when a bar is on
+ * both sides, so a dark cover with a black foot is left alone.
+ */
+private fun ImageBitmap.withoutLetterbox(): ImageBitmap {
+    val w = width
+    val h = height
+    if (w < 8 || h < 16) return this
+    val pixels = argbPixels()
+    if (pixels.size != w * h) return this
+    fun rowIsBar(y: Int): Boolean {
+        var dark = 0
+        val base = y * w
+        for (x in 0 until w) {
+            val p = pixels[base + x]
+            if (maxOf((p shr 16) and 0xFF, (p shr 8) and 0xFF, p and 0xFF) <= LETTERBOX_MAX_CHANNEL) dark++
+        }
+        return dark >= w * 98 / 100
+    }
+    var top = 0
+    while (top < h / 3 && rowIsBar(top)) top++
+    var bottom = 0
+    while (bottom < h / 3 && rowIsBar(h - 1 - bottom)) bottom++
+    val minBar = (h * 4 / 100).coerceAtLeast(2)
+    if (top < minBar || bottom < minBar) return this
+    // One row of margin each side: JPEG blends the bar into the picture at the edge.
+    val from = top + 1
+    val until = h - bottom - 1
+    if (until - from < 8) return this
+    return imageBitmapOf(pixels.copyOfRange(from * w, until * w), w, until - from)
+}
 
 /**
  * The same picture with its bottom rows repeated, so the quantiser sees more of

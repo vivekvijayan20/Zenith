@@ -322,6 +322,12 @@ private const val MESH_REFRESH_MS = 3_000L
  */
 private const val LIVE_BLUR_REFRESH_MS = 160L
 
+/** Legacy mesh only tints the cover edge off the clip: a slow readback is enough. */
+private const val LEGACY_MESH_EDGE_REFRESH_MS = 480L
+
+/** Longer than the mesh's 3.5s colour fade, so the fade can finish and the blur can rest. */
+private const val LEGACY_MESH_PALETTE_REFRESH_MS = 6_000L
+
 /** Longest edge of a live blur frame: it is blurred and stretched, so small is enough. */
 private const val LIVE_BLUR_CAPTURE_PX = 96
 
@@ -1271,7 +1277,7 @@ fun NowPlayingScreen(
     val liveReduceMotion by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
     val meshRefreshMs: Long? = when {
         liveReduceMotion -> MESH_REFRESH_MS
-        legacyMesh -> LIVE_BLUR_REFRESH_MS
+        legacyMesh -> LEGACY_MESH_EDGE_REFRESH_MS
         liveReduceBlur -> MESH_REFRESH_MS
         else -> LIVE_BLUR_REFRESH_MS
     }
@@ -1281,7 +1287,7 @@ fun NowPlayingScreen(
     val acceptCanvasFrame: (ImageBitmap) -> Unit = { frame ->
         canvasEdgeFrame = frame
         val nowMs = System.nanoTime() / 1_000_000L
-        if (!legacyMesh || canvasFrame == null || nowMs - meshFrameClock[0] >= MESH_REFRESH_MS) {
+        if (!legacyMesh || canvasFrame == null || nowMs - meshFrameClock[0] >= LEGACY_MESH_PALETTE_REFRESH_MS) {
             meshFrameClock[0] = nowMs
             canvasFrame = frame
         }
@@ -1728,10 +1734,10 @@ fun NowPlayingScreen(
         }
     }
     val fullBleedSetting by PlayerSettings.fullBleedArtwork.collectAsStateWithLifecycle()
-    // Lagu tipe video yang tidak punya canvas hanya punya frame 16:9 sebagai
-    // cover. Dibentangkan full screen hasilnya buruk, jadi tetap jadi kartu
-    // walau pengaturan full-bleed menyala. Dengan canvas, aturannya tidak berubah.
-    val fullBleedArt = fullBleedSetting && !(song.isVideo && canvas == null)
+    // Full-bleed hanya diblokir saat klip video benar-benar tampil di tempat
+    // cover (videoMode). Lagu video dengan cover diam (still video covers) atau
+    // tanpa dukungan video kini ikut pengaturan full-bleed seperti lagu biasa.
+    val fullBleedArt = fullBleedSetting && !(videoMode && canvas == null)
     // Full-bleed is a phone idiom. What the width has to rule out is a player
     // running a foot wider than the column of controls under it — edge to edge
     // meaning "a picture, and separately some controls" rather than "the
@@ -3125,14 +3131,21 @@ fun NowPlayingScreen(
                         driftMillis = 20_000,
                         colorFadeMillis = 3_500,
                         matchSeam = (fullBleedArt || canvasHero) && heroMode && !lyricsOpen && !queueOpen && !queueShowing,
+                        // Klip sedang tampil atau player sedang bergerak (minimize/expand):
+                        // blob diam supaya blur layar penuh tidak digambar ulang tiap frame.
+                        paused = (canvas != null && canvasRendered) || dockMoving || collapseStarted,
                         modifier = Modifier.graphicsLayer { alpha = 1f - fullArtworkBackdropAlpha },
                     )
                     // Sambungan tepi cover tetap tampil di lagu ber-canvas (canvasHero)
                     // walau "Sampul layar penuh" dimatikan; tanpa canvas tetap ikut setelan.
                     if ((fullBleedArt || canvasHero) && heroMode) {
+                        // Blur layar penuh kedua ini hanya ada di lagu canvas dan seam-nya
+                        // bergerak tiap frame saat player minimize/expand: sembunyikan cepat
+                        // selama bergerak, lalu munculkan lagi setelah menetap.
+                        val edgeMoving = dockMoving || collapseStarted
                         val edgeAlpha by animateFloatAsState(
-                            targetValue = if (!lyricsOpen && !queueOpen) 1f else 0f,
-                            animationSpec = tween(durationMillis = 300),
+                            targetValue = if (!lyricsOpen && !queueOpen && !edgeMoving) 1f else 0f,
+                            animationSpec = if (edgeMoving) tween(durationMillis = 90) else tween(durationMillis = 300),
                             label = "coverEdgeTint",
                         )
                         CoverEdgeBackdrop(
@@ -5632,6 +5645,8 @@ Spacer(Modifier.width(12.dp))
                                     onRevealPlayer = { queueControlsOpen = true },
                                     onHidePlayer = { queueControlsOpen = false },
                                     bottomFade = if (lyricStripEnabled) 28.dp else 14.dp,
+                                    // Tanpa strip lirik panel diukur 36dp lebih tinggi dari slotnya.
+                                    bottomInset = if (lyricStripEnabled) 0.dp else 36.dp,
                                     modifier = Modifier.weight(1f),
                                 )
                             }

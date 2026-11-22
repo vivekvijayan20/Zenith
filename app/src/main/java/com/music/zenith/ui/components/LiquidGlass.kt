@@ -37,7 +37,9 @@ import com.music.zenith.ui.components.backdrop.effects.lens
 import com.music.zenith.ui.components.backdrop.highlight.Highlight
 import com.music.zenith.ui.components.backdrop.highlight.HighlightElement
 import com.music.zenith.ui.components.backdrop.internal.ShapeProvider
+import com.music.zenith.ui.components.backdrop.shadow.InnerShadow
 import com.music.zenith.ui.components.backdrop.shadow.Shadow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 
 /** Whether the liquid glass nav bar is turned on — see [AppSettings.liquidGlass]. */
@@ -219,6 +221,8 @@ fun Modifier.liquidGlass(
     customOverride: GlassCustom? = null,
     /** Replaces the app-wide frosted setting for this surface only, when set. */
     frostedOverride: Boolean? = null,
+    /** 1 = tepi bawaan; lebih besar melebarkan lensa tepi, menebalkan rim dan menambah inner glow. */
+    edgeDepth: Float = 1f,
 ): Modifier {
     if (!isGlassSupported()) return this
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
@@ -237,12 +241,29 @@ fun Modifier.liquidGlass(
     val density = LocalDensity.current
     val resolution = (clarity.resolutionScale * custom.quality).coerceIn(0.2f, 1f)
     val blurPx = with(density) { BLUR_RADIUS_DP.dp.toPx() } * resolution * clarity.blurScale * custom.blur
-    val lensHeightPx = with(density) { (LENS_HEIGHT * LENS_MAX_DP).dp.toPx() } * resolution * custom.refractionWidth
+    val edgeBoost = edgeDepth.coerceAtLeast(1f)
+    val lensHeightPx = with(density) { (LENS_HEIGHT * LENS_MAX_DP).dp.toPx() } * resolution *
+        custom.refractionWidth * edgeBoost
     val lensAmountPx = with(density) { (LENS_AMOUNT * LENS_MAX_DP).dp.toPx() } * resolution *
-        clarity.lensScale * custom.refraction
+        clarity.lensScale * custom.refraction * (1f + (edgeBoost - 1f) * 0.5f)
     val rainbowStrength = custom.rainbowStrength(clarity.chromatic)
-    val highlightSpec = remember(custom.rim) { Highlight.Default.copy(alpha = custom.rim) }
+    val highlightSpec = remember(custom.rim, edgeBoost) {
+        val rimWidth = Highlight.Default.width * (1f + (edgeBoost - 1f) * 0.6f)
+        Highlight.Default.copy(width = rimWidth, blurRadius = rimWidth / 2f, alpha = custom.rim)
+    }
     val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+    // Cahaya tipis di sisi dalam tepi, memberi kesan ketebalan kaca di bar dan player.
+    val innerGlow = remember(edgeBoost, isLightTheme) {
+        if (edgeBoost > 1f) {
+            InnerShadow(
+                radius = 8.dp,
+                offset = DpOffset(0.dp, 0.dp),
+                color = Color.White.copy(alpha = if (isLightTheme) 0.30f else 0.12f),
+            )
+        } else {
+            null
+        }
+    }
     val shadowSpec = remember(custom.shadow, isLightTheme) {
         // A light page has nothing darker behind the bar, so the shadow sets it apart.
         val base = if (isLightTheme) 0.18f else 0.1f
@@ -283,6 +304,7 @@ fun Modifier.liquidGlass(
         },
         highlight = { highlightSpec },
         shadow = { if (frosted && !isLightTheme) null else shadowSpec },
+        innerShadow = innerGlow?.let { glow -> { glow } },
         onDrawSurface = {
             drawRect(color = surfaceTintColor, size = size)
         },

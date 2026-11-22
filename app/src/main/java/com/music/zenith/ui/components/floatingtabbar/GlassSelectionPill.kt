@@ -188,7 +188,13 @@ internal class GlassPillMotion(
 
     /** A tab was chosen: travel there, lifted. Re-choosing the current tab is a no-op. */
     fun animateTo(next: Int) {
-        if (next == index) return
+        // Matching [index] alone is not enough to skip: a pill whose travel was cut
+        // short, or that was left lifted, has the right index but is not on its tab.
+        if (next == index && !held) {
+            val settling = settleJob?.isActive == true || dropJob?.isActive == true
+            val atRest = abs(valueAnim.value - next) < 0.001f && isFlat
+            if (settling || atRest) return
+        }
         if (reduceMotion) {
             snapTo(next)
             return

@@ -161,6 +161,7 @@ import com.music.zenith.data.settings.AppSettings
 import com.music.zenith.data.settings.OutputPcmMode
 import com.music.zenith.data.settings.GlassClarity
 import com.music.zenith.data.settings.GlassPreset
+import com.music.zenith.data.settings.GlassBarMetrics
 import com.music.zenith.data.settings.BitPerfectMode
 import com.music.zenith.playback.AudioOutputStatus
 import com.music.zenith.playback.audio.bitperfect.BitPerfectOutput
@@ -3313,6 +3314,12 @@ private fun LiquidGlassSettingsContent() {
     val supported = isGlassSupported()
     val active = liquidGlass && supported
     val lensActive = active && !frosted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val bar = GlassBarMetrics.layout
+    fun step(v: Float) = (v * 2f).roundToInt() / 2f
+    fun sizeText(v: Float, unit: String): String {
+        val r = (v * 10f).roundToInt() / 10f
+        return if (r % 1f == 0f) "${r.toInt()} $unit" else "$r $unit"
+    }
     fun percent(v: Float) = "${(v * 100f).roundToInt()}%"
 
     SettingsGroup(footer = if (active) null else stringResource(R.string.glass_enable_hint)) {
@@ -3687,6 +3694,164 @@ private fun LiquidGlassSettingsContent() {
             range = 0f..3f,
             enabled = active && !frosted,
             onValueChange = { AppSettings.setGlassCustom(custom.copy(shadow = it)) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_edge_depth),
+            valueText = percent(bar.edgeDepth),
+            value = bar.edgeDepth,
+            range = 1f..3f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(edgeDepth = (it * 20f).roundToInt() / 20f)) },
+        )
+    }
+
+    SettingsGroup(
+        header = stringResource(R.string.glass_section_bar_tabs),
+        footer = stringResource(R.string.glass_footer_bar_size),
+    ) {
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_tab_icon),
+            valueText = sizeText(bar.tabIconSize, "dp"),
+            value = bar.tabIconSize,
+            range = 16f..36f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(tabIconSize = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_tab_padding),
+            valueText = sizeText(bar.tabPadding, "dp"),
+            value = bar.tabPadding,
+            range = 0f..14f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(tabPadding = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_label_gap),
+            valueText = sizeText(bar.labelGap, "dp"),
+            value = bar.labelGap,
+            range = 0f..8f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(labelGap = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_pill_inset),
+            valueText = sizeText(bar.pillInset, "dp"),
+            value = bar.pillInset,
+            range = 0f..12f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(pillInset = step(it))) },
+        )
+    }
+
+    SettingsGroup(header = stringResource(R.string.glass_section_bar_player)) {
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_player_height),
+            valueText = sizeText(bar.playerHeight, "dp"),
+            value = bar.playerHeight,
+            range = 32f..64f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(playerHeight = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_player_art),
+            valueText = sizeText(bar.playerArt, "dp"),
+            value = bar.playerArt,
+            range = 20f..48f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(playerArt = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_player_title),
+            valueText = sizeText(bar.playerTitleSize, "sp"),
+            value = bar.playerTitleSize,
+            range = 10f..18f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(playerTitleSize = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_player_artist),
+            valueText = sizeText(bar.playerArtistSize, "sp"),
+            value = bar.playerArtistSize,
+            range = 9f..16f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(playerArtistSize = step(it))) },
+        )
+    }
+
+    SettingsGroup(header = stringResource(R.string.glass_section_bar_spacing)) {
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_gap),
+            valueText = sizeText(bar.componentGap, "dp"),
+            value = bar.componentGap,
+            range = 0f..24f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(componentGap = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_side),
+            valueText = sizeText(bar.sideMargin, "dp"),
+            value = bar.sideMargin,
+            range = 0f..48f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(sideMargin = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_lift),
+            valueText = sizeText(bar.bottomLift, "dp"),
+            value = bar.bottomLift,
+            range = 0f..48f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(bottomLift = step(it))) },
+        )
+    }
+
+    SettingsGroup(
+        header = stringResource(R.string.glass_section_bar_collapsed),
+        footer = stringResource(R.string.glass_footer_bar_collapsed),
+    ) {
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_inline_side),
+            valueText = sizeText(bar.inlineGutter, "dp"),
+            value = bar.inlineGutter,
+            range = 0f..64f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(inlineGutter = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_inline_gap),
+            valueText = sizeText(bar.inlineGap, "dp"),
+            value = bar.inlineGap,
+            range = 0f..32f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(inlineGap = step(it))) },
+        )
+        RowDivider()
+        GlassSliderRow(
+            title = stringResource(R.string.glass_bar_inline_lift),
+            valueText = sizeText(bar.inlineLift, "dp"),
+            value = bar.inlineLift,
+            range = 0f..24f,
+            enabled = active,
+            onValueChange = { AppSettings.setGlassBar(bar.copy(inlineLift = step(it))) },
+        )
+    }
+
+    SettingsGroup {
+        SettingsRow(
+            icon = SfIcons.Tune,
+            title = stringResource(R.string.glass_bar_reset),
+            enabled = active && !bar.isDefault,
+            onClick = { AppSettings.resetGlassBar() },
         )
     }
 

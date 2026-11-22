@@ -78,19 +78,22 @@ data class BottomTab(
  * Shared with [GlassNavBar], which is meant to measure the same as this bar
  * rather than merely near it.
  */
-internal val PILL_INSET = 4.dp
+internal val PILL_INSET: androidx.compose.ui.unit.Dp
+    get() = com.music.zenith.data.settings.GlassBarMetrics.layout.pillInset.dp
 
 /**
  * The tab bar's margin at either side of the screen: Apple's is 19pt, wider
  * than the page's own [BAR_GUTTER].
  */
-internal val NAV_BAR_GUTTER = 19.dp
+internal val NAV_BAR_GUTTER: androidx.compose.ui.unit.Dp
+    get() = com.music.zenith.data.settings.GlassBarMetrics.layout.sideMargin.dp
 
 /**
  * How far above [floatingBarInsets] the bar sits: on a gesture inset of 15dp
  * this puts its foot 21dp off the screen's edge, where Apple's is.
  */
-internal val NAV_BAR_LIFT = 6.dp
+internal val NAV_BAR_LIFT: androidx.compose.ui.unit.Dp
+    get() = com.music.zenith.data.settings.GlassBarMetrics.layout.bottomLift.dp
 
 /**
  * How far the floating bars stand off the bottom edge: the system navigation
@@ -117,17 +120,20 @@ private val GESTURE_BAR_FLOOR = 15.dp
  * numbers are a pair: change one and the bar's height moves unless the other
  * moves against it.
  */
-internal val TAB_VERTICAL_PADDING = 6.5.dp
+internal val TAB_VERTICAL_PADDING: androidx.compose.ui.unit.Dp
+    get() = com.music.zenith.data.settings.GlassBarMetrics.layout.tabPadding.dp
 
 /** The gap between a tab's glyph and its label, in both bars. */
-internal val TAB_ICON_LABEL_GAP = 1.dp
+internal val TAB_ICON_LABEL_GAP: androidx.compose.ui.unit.Dp
+    get() = com.music.zenith.data.settings.GlassBarMetrics.layout.labelGap.dp
 
 /**
  * A tab's glyph box. Apple's glyphs stand 21 to 24pt in a bar 61pt tall, a
  * larger share of it than these had at 25dp in 70; at 28 they come out at
  * Apple's sizes, and with the padding above the bar is 62dp.
  */
-internal val TAB_ICON_SIZE = 28.dp
+internal val TAB_ICON_SIZE: androidx.compose.ui.unit.Dp
+    get() = com.music.zenith.data.settings.GlassBarMetrics.layout.tabIconSize.dp
 
 /** A tab's label: Apple's 10pt, letter-spaced as SF Pro Text sets it. */
 @Composable

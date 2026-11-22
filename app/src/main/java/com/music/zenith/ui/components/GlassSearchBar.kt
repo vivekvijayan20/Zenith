@@ -79,8 +79,12 @@ class SourceMenuRequest(
 )
 
 /** The bar at rest: the tab pill and the Search circle are both 62dp tall. */
-private val BAR_ROW_HEIGHT = 62.dp
-private val BAR_CIRCLE = 62.dp
+private val BAR_ROW_HEIGHT: androidx.compose.ui.unit.Dp
+    get() = com.music.zenith.data.settings.GlassBarMetrics.layout.let {
+        (it.pillInset * 2f + it.tabPadding * 2f + it.tabIconSize + it.labelGap + 14f).dp
+    }
+private val BAR_CIRCLE: androidx.compose.ui.unit.Dp
+    get() = BAR_ROW_HEIGHT
 private val BAR_SPACING = 8.dp
 
 /** The bar once the field is open: a 48dp circle for the last tab and the field beside it. */
@@ -274,7 +278,8 @@ fun GlassSearchBar(
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = tabLabelStyle()
-    val restHeight = remember(labelStyle, density) {
+    val barLayout = com.music.zenith.data.settings.GlassBarMetrics.layout
+    val restHeight = remember(labelStyle, density, barLayout) {
         val labelPx = textMeasurer.measure(text = "Ag", style = labelStyle, maxLines = 1).size.height
         PILL_INSET * 2 + TAB_VERTICAL_PADDING * 2 + TAB_ICON_SIZE + TAB_ICON_LABEL_GAP +
             with(density) { labelPx.toDp() }

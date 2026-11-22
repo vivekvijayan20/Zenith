@@ -273,6 +273,8 @@ internal fun InlineQueue(
     hazeState: HazeState? = null,
     /** Tinggi fade di kaki daftar; dipendekkan saat strip lirik di atas bar mati. */
     bottomFade: androidx.compose.ui.unit.Dp = 28.dp,
+    /** Bagian bawah daftar yang berada di luar layar (panel ditinggikan), agar baris terakhir tetap bisa di-scroll penuh. */
+    bottomInset: androidx.compose.ui.unit.Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -371,7 +373,12 @@ internal fun InlineQueue(
                     .then(if (collapsePlayerOnScroll) Modifier.nestedScroll(controlsOnScroll) else Modifier),
                 // Zona fade [fadingEdges] 28dp; padding atas sengaja lebih kecil
                 // supaya "Add Songs to Queue" naik dan hanya sedikit masuk fade.
-                contentPadding = PaddingValues(start = PLAYER_GUTTER, end = PLAYER_GUTTER, top = 4.dp),
+                contentPadding = PaddingValues(
+                    start = PLAYER_GUTTER,
+                    end = PLAYER_GUTTER,
+                    top = 4.dp,
+                    bottom = bottomFade + bottomInset,
+                ),
             ) {
                 if (tracks.history.isNotEmpty()) {
                     item(key = "header-history") {

@@ -730,8 +730,8 @@ private fun SharedTransitionScope.InlineTab(
                 color = colors.backgroundColor,
                 shape = shapes.tabBarShape
             )
-            .clip(shapes.tabBarShape)
             .then(tabBarContentModifier())
+            .clip(shapes.tabBarShape)
             .clickable(
                 // Sentuhan pertama hanya membuka bar ke bentuk expanded (mini
                 // player kembali di atas). Pindah tab baru terjadi di sentuhan
@@ -880,8 +880,8 @@ private fun SharedTransitionScope.StandaloneTabBody(
                         color = colors.backgroundColor,
                         shape = shapes.standaloneTabShape
                     )
-                    .clip(shapes.standaloneTabShape)
                     .then(tabBarContentModifier())
+                    .clip(shapes.standaloneTabShape)
                     .clickable(
                         onClick = standaloneTab.onClick,
                         indication = standaloneTab.indication?.invoke(),
@@ -930,8 +930,7 @@ private fun SharedTransitionScope.InlineAccessory(
                         shape = shapes.accessoryShape,
                         elevation = elevations.inlineElevation
                     )
-                    .background(color = colors.accessoryBackgroundColor, shapes.accessoryShape)
-                    .clip(shapes.accessoryShape),
+                    .background(color = colors.accessoryBackgroundColor, shapes.accessoryShape),
                 animatedVisibilityScope
             )
         }
@@ -1054,8 +1053,7 @@ private fun SharedTransitionScope.ExpandedAccessory(
                     shape = shapes.accessoryShape,
                     elevation = elevations.expandedElevation
                 )
-                .background(color = colors.accessoryBackgroundColor, shapes.accessoryShape)
-                .clip(shapes.accessoryShape),
+                .background(color = colors.accessoryBackgroundColor, shapes.accessoryShape),
             animatedVisibilityScope
         )
     }
@@ -1120,6 +1118,10 @@ private fun SharedTransitionScope.ExpandedTabs(
     val currentTabStepPx by rememberUpdatedState(tabStepPx)
     val currentIsRtl by rememberUpdatedState(isRtl)
     val currentTabWidthPx by rememberUpdatedState(tabWidthPx)
+    // The gesture blocks below run for the life of the row; reading [scope] directly
+    // would keep the tab list of the first composition (e.g. Search as a standalone
+    // tab, capping the indicator at Library) after "separate Search" is switched.
+    val currentScope by rememberUpdatedState(scope)
     // The tab a finger last landed on, so a drag can tell whether it began on the selected one.
     val pressedTab = remember { IntArray(1) { -1 } }
 
@@ -1230,11 +1232,17 @@ private fun SharedTransitionScope.ExpandedTabs(
                                 pending?.cancel()
                                 val pressedAt = SystemClock.uptimeMillis()
                                 val x = if (currentIsRtl) size.width - down.position.x else down.position.x
-                                val tapped = (x / currentTabStepPx).toInt().coerceIn(0, scope.tabs.lastIndex)
+                                val tapped = (x / currentTabStepPx).toInt().coerceIn(0, currentScope.tabs.lastIndex)
                                 pressedTab[0] = tapped
                                 // Only the selected tab's pill lifts under a finger; pressing
                                 // another tab leaves the indicator alone until the tap carries it over.
-                                if (tapped != currentSelectedTabIndex) return@awaitEachGesture
+                                if (tapped != currentSelectedTabIndex) {
+                                    // A previous tap's release was cancelled above; a pill it
+                                    // left lifted must not stay up (stuck on the old tab) while
+                                    // the finger is on another one.
+                                    if (pill.isHeld) pill.release(currentSelectedTabIndex)
+                                    return@awaitEachGesture
+                                }
                                 pill.startDrag()
                                 var dragged = false
                                 while (true) {
@@ -1286,32 +1294,32 @@ private fun SharedTransitionScope.ExpandedTabs(
                                 onDragEnd = {
                                     if (!holding) return@detectHorizontalDragGestures
                                     holding = false
-                                    val standalone = scope.standaloneTab
-                                    val dragMax = scope.tabs.lastIndex.toFloat() +
+                                    val standalone = currentScope.standaloneTab
+                                    val dragMax = currentScope.tabs.lastIndex.toFloat() +
                                         (if (standalone != null) STANDALONE_DRAG_REACH else 0f)
                                     val absoluteIndexFloat = (dragStartIndex + totalDrag / step)
                                         .coerceIn(0f, dragMax)
                                     // Carried past the last tab, the indicator was dragged onto
                                     // the standalone tab (Search): choose it.
                                     if (standalone != null &&
-                                        absoluteIndexFloat > scope.tabs.lastIndex + 0.5f
+                                        absoluteIndexFloat > currentScope.tabs.lastIndex + 0.5f
                                     ) {
-                                        pill.release(scope.tabs.lastIndex)
+                                        pill.release(currentScope.tabs.lastIndex)
                                         standalone.onClick()
                                         return@detectHorizontalDragGestures
                                     }
                                     val newIndex = absoluteIndexFloat.roundToInt()
-                                        .coerceAtMost(scope.tabs.lastIndex)
+                                        .coerceAtMost(currentScope.tabs.lastIndex)
                                     pill.release(newIndex)
                                     if (newIndex != currentSelectedTabIndex) {
-                                        scope.tabs[newIndex].onClick()
+                                        currentScope.tabs[newIndex].onClick()
                                     }
                                 },
                                 onHorizontalDrag = { _, delta ->
                                     if (!holding) return@detectHorizontalDragGestures
                                     totalDrag += delta * direction
-                                    val dragMax = scope.tabs.lastIndex.toFloat() +
-                                        (if (scope.standaloneTab != null) STANDALONE_DRAG_REACH else 0f)
+                                    val dragMax = currentScope.tabs.lastIndex.toFloat() +
+                                        (if (currentScope.standaloneTab != null) STANDALONE_DRAG_REACH else 0f)
                                     val rawIndex = dragStartIndex + totalDrag / step
                                     val absoluteIndexFloat = rawIndex.coerceIn(0f, dragMax)
                                     // Mentok di ujung tapi jari masih menarik: lensa tertarik

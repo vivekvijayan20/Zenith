@@ -304,6 +304,67 @@ enum class GlassPreset(
 }
 
 /**
+ * Ukuran manual nav bar Liquid Glass: tab bar, pemutar, jarak/posisi, bar yang
+ * dilipat, dan kedalaman tepi. Satuan dp (sp untuk teks). Nilai bawaan = tampilan
+ * Zenith saat ini. Terpisah dari preset kaca, jadi preset tidak mengubahnya.
+ */
+data class GlassBarLayout(
+    val tabIconSize: Float = 24f,
+    val tabPadding: Float = 4f,
+    val labelGap: Float = 1f,
+    val pillInset: Float = 4f,
+    val playerHeight: Float = 42f,
+    val playerArt: Float = 30.4f,
+    val playerTitleSize: Float = 13f,
+    val playerArtistSize: Float = 12f,
+    val componentGap: Float = 8f,
+    val sideMargin: Float = 19f,
+    val bottomLift: Float = 6f,
+    val inlineGutter: Float = 28f,
+    val inlineGap: Float = 14f,
+    val inlineLift: Float = 7f,
+    val edgeDepth: Float = 1.9f,
+) {
+    val isDefault: Boolean get() = this == DEFAULT
+
+    fun coerced(): GlassBarLayout = copy(
+        tabIconSize = tabIconSize.coerceIn(16f, 36f),
+        tabPadding = tabPadding.coerceIn(0f, 14f),
+        labelGap = labelGap.coerceIn(0f, 8f),
+        pillInset = pillInset.coerceIn(0f, 12f),
+        playerHeight = playerHeight.coerceIn(32f, 64f),
+        playerArt = playerArt.coerceIn(20f, 48f),
+        playerTitleSize = playerTitleSize.coerceIn(10f, 18f),
+        playerArtistSize = playerArtistSize.coerceIn(9f, 16f),
+        componentGap = componentGap.coerceIn(0f, 24f),
+        sideMargin = sideMargin.coerceIn(0f, 48f),
+        bottomLift = bottomLift.coerceIn(0f, 48f),
+        inlineGutter = inlineGutter.coerceIn(0f, 64f),
+        inlineGap = inlineGap.coerceIn(0f, 32f),
+        inlineLift = inlineLift.coerceIn(0f, 24f),
+        edgeDepth = edgeDepth.coerceIn(1f, 3f),
+    )
+
+    companion object {
+        val DEFAULT = GlassBarLayout()
+    }
+}
+
+/**
+ * Cermin Compose dari ukuran nav bar: dibaca saat composition, layout atau draw
+ * sehingga bar ikut berubah begitu slider digeser. Ditulis lewat [AppSettings.setGlassBar].
+ */
+object GlassBarMetrics {
+    private val state = androidx.compose.runtime.mutableStateOf(GlassBarLayout())
+
+    val layout: GlassBarLayout get() = state.value
+
+    internal fun update(value: GlassBarLayout) {
+        state.value = value
+    }
+}
+
+/**
  * Which exclusive output, if any, a track is sent to unchanged. Declared in
  * the order the settings picker lists them; persisted by name, so the order
  * can change freely.
@@ -1614,6 +1675,26 @@ object AppSettings {
             iconLift = prefs.getFloat(KEY_GIND_ICON_LIFT, gi.iconLift),
             squash = prefs.getFloat(KEY_GIND_SQUASH, gi.squash),
         ).coerced()
+        val gb = GlassBarLayout.DEFAULT
+        GlassBarMetrics.update(
+            GlassBarLayout(
+                tabIconSize = prefs.getFloat(KEY_GBAR_TAB_ICON, gb.tabIconSize),
+                tabPadding = prefs.getFloat(KEY_GBAR_TAB_PADDING, gb.tabPadding),
+                labelGap = prefs.getFloat(KEY_GBAR_LABEL_GAP, gb.labelGap),
+                pillInset = prefs.getFloat(KEY_GBAR_PILL_INSET, gb.pillInset),
+                playerHeight = prefs.getFloat(KEY_GBAR_PLAYER_HEIGHT, gb.playerHeight),
+                playerArt = prefs.getFloat(KEY_GBAR_PLAYER_ART, gb.playerArt),
+                playerTitleSize = prefs.getFloat(KEY_GBAR_PLAYER_TITLE, gb.playerTitleSize),
+                playerArtistSize = prefs.getFloat(KEY_GBAR_PLAYER_ARTIST, gb.playerArtistSize),
+                componentGap = prefs.getFloat(KEY_GBAR_COMPONENT_GAP, gb.componentGap),
+                sideMargin = prefs.getFloat(KEY_GBAR_SIDE_MARGIN, gb.sideMargin),
+                bottomLift = prefs.getFloat(KEY_GBAR_BOTTOM_LIFT, gb.bottomLift),
+                inlineGutter = prefs.getFloat(KEY_GBAR_INLINE_GUTTER, gb.inlineGutter),
+                inlineGap = prefs.getFloat(KEY_GBAR_INLINE_GAP, gb.inlineGap),
+                inlineLift = prefs.getFloat(KEY_GBAR_INLINE_LIFT, gb.inlineLift),
+                edgeDepth = prefs.getFloat(KEY_GBAR_EDGE_DEPTH, gb.edgeDepth),
+            ).coerced(),
+        )
         progressiveBlur.value = prefs.getBoolean(KEY_PROGRESSIVE_BLUR, false)
         lyricsBlur.value = prefs.getBoolean(KEY_LYRICS_BLUR, true)
         liquidFlow.value = prefs.getBoolean(KEY_LIQUID_FLOW, true)
@@ -2285,6 +2366,30 @@ object AppSettings {
             .putFloat(KEY_GIND_SQUASH, v.squash)
             .apply()
     }
+
+    fun setGlassBar(value: GlassBarLayout) {
+        val v = value.coerced()
+        GlassBarMetrics.update(v)
+        prefs.edit()
+            .putFloat(KEY_GBAR_TAB_ICON, v.tabIconSize)
+            .putFloat(KEY_GBAR_TAB_PADDING, v.tabPadding)
+            .putFloat(KEY_GBAR_LABEL_GAP, v.labelGap)
+            .putFloat(KEY_GBAR_PILL_INSET, v.pillInset)
+            .putFloat(KEY_GBAR_PLAYER_HEIGHT, v.playerHeight)
+            .putFloat(KEY_GBAR_PLAYER_ART, v.playerArt)
+            .putFloat(KEY_GBAR_PLAYER_TITLE, v.playerTitleSize)
+            .putFloat(KEY_GBAR_PLAYER_ARTIST, v.playerArtistSize)
+            .putFloat(KEY_GBAR_COMPONENT_GAP, v.componentGap)
+            .putFloat(KEY_GBAR_SIDE_MARGIN, v.sideMargin)
+            .putFloat(KEY_GBAR_BOTTOM_LIFT, v.bottomLift)
+            .putFloat(KEY_GBAR_INLINE_GUTTER, v.inlineGutter)
+            .putFloat(KEY_GBAR_INLINE_GAP, v.inlineGap)
+            .putFloat(KEY_GBAR_INLINE_LIFT, v.inlineLift)
+            .putFloat(KEY_GBAR_EDGE_DEPTH, v.edgeDepth)
+            .apply()
+    }
+
+    fun resetGlassBar() = setGlassBar(GlassBarLayout.DEFAULT)
 
     /** Tema gelap yang sedang aktif, dipakai preset yang punya nilai terang dan gelap. */
     private var glassDarkTheme = false
@@ -3265,6 +3370,21 @@ object AppSettings {
     private const val KEY_GIND_LIFT = "glass_ind_lift"
     private const val KEY_GIND_ICON_LIFT = "glass_ind_icon_lift"
     private const val KEY_GIND_SQUASH = "glass_ind_squash"
+    private const val KEY_GBAR_TAB_ICON = "glass_bar_tab_icon"
+    private const val KEY_GBAR_TAB_PADDING = "glass_bar_tab_padding"
+    private const val KEY_GBAR_LABEL_GAP = "glass_bar_label_gap"
+    private const val KEY_GBAR_PILL_INSET = "glass_bar_pill_inset"
+    private const val KEY_GBAR_PLAYER_HEIGHT = "glass_bar_player_height"
+    private const val KEY_GBAR_PLAYER_ART = "glass_bar_player_art"
+    private const val KEY_GBAR_PLAYER_TITLE = "glass_bar_player_title"
+    private const val KEY_GBAR_PLAYER_ARTIST = "glass_bar_player_artist"
+    private const val KEY_GBAR_COMPONENT_GAP = "glass_bar_component_gap"
+    private const val KEY_GBAR_SIDE_MARGIN = "glass_bar_side_margin"
+    private const val KEY_GBAR_BOTTOM_LIFT = "glass_bar_bottom_lift"
+    private const val KEY_GBAR_INLINE_GUTTER = "glass_bar_inline_gutter"
+    private const val KEY_GBAR_INLINE_GAP = "glass_bar_inline_gap"
+    private const val KEY_GBAR_INLINE_LIFT = "glass_bar_inline_lift"
+    private const val KEY_GBAR_EDGE_DEPTH = "glass_bar_edge_depth"
     private const val KEY_PROGRESSIVE_BLUR = "progressive_blur"
     private const val KEY_LYRICS_BLUR = "lyrics_blur"
     private const val KEY_LIQUID_FLOW = "liquid_flow_motion"

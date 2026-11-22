@@ -19,7 +19,19 @@ data class AppleAlbumInfo(
     val releaseDate: LocalDate?,
     val copyright: String?,
     val genre: String?,
+    /** `audioTraits` dari katalog Apple: lossless, hi-res-lossless, atmos, lossy-stereo. */
+    val audioTraits: List<String> = emptyList(),
 )
+
+/**
+ * Label kualitas ala Apple Music untuk header album. Ini ketersediaan di katalog
+ * Apple, bukan kualitas yang diputar app; yang terukur ada di Nerd stats.
+ */
+fun AppleAlbumInfo.audioQualityLabel(): String? = when {
+    "hi-res-lossless" in audioTraits -> "Hi-Res Lossless"
+    "lossless" in audioTraits -> "Lossless"
+    else -> null
+}
 
 /** Tanggal rilis dalam format lokal pengguna, mis. "March 3, 1988". */
 fun AppleAlbumInfo.releaseDateText(): String? =
@@ -105,8 +117,11 @@ object AppleAlbumInfoRepository {
         val date = runCatching { LocalDate.parse(best.optString("releaseDate").take(10)) }.getOrNull()
         val copyright = best.optString("copyright").trim().takeIf { it.isNotEmpty() }
         val genre = best.optString("primaryGenreName").trim().takeIf { it.isNotEmpty() }
-        if (date == null && copyright == null && genre == null) return Entry(null)
-        return Entry(AppleAlbumInfo(date, copyright, genre))
+        val traits = runCatching { AppleMusicCanvas.albumAudioTraits(albumTitle, artist.primaryArtist()) }
+            .getOrNull()
+            .orEmpty()
+        if (date == null && copyright == null && genre == null && traits.isEmpty()) return Entry(null)
+        return Entry(AppleAlbumInfo(date, copyright, genre, traits))
     }
 
     /** Judul tanpa akhiran " - Single" / " - EP" milik Apple, dinormalkan. */

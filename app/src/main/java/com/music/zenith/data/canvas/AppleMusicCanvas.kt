@@ -161,6 +161,46 @@ object AppleMusicCanvas {
         return null
     }
 
+    /**
+     * The audio formats Apple lists for an album (`audioTraits`: `lossless`,
+     * `hi-res-lossless`, `atmos`, `lossy-stereo`), for the album page badge.
+     * Null when no album clears the same match bar as [searchAlbum] or the
+     * catalog can't be reached. Blocking: call it off the main thread.
+     */
+    fun albumAudioTraits(album: String, artist: String): List<String>? {
+        val bearer = token() ?: return null
+        val term = if (album.contains(artist, ignoreCase = true)) album else "$artist $album"
+        val url = "$AMP/$storefront/search".toHttpUrl().newBuilder()
+            .addQueryParameter("term", term)
+            .addQueryParameter("types", "albums")
+            .addQueryParameter("limit", "10")
+            .build()
+            .toString()
+
+        val body = get(url, bearer) ?: return null
+        val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null
+        val hits = root["results"]?.jsonObject
+            ?.get("albums")?.jsonObject
+            ?.get("data")?.jsonArray
+            ?: return null
+
+        val best = hits.mapNotNull { hit ->
+            val record = hit as? JsonObject ?: return@mapNotNull null
+            val score = score(record, album, artist, album, albumIsSelf = true)
+                ?: return@mapNotNull null
+            score to record
+        }.filter { it.first >= MIN_SCORE }
+            .maxByOrNull { it.first }
+            ?.second
+            ?: return null
+
+        val traits = best["attributes"]?.jsonObject
+            ?.get("audioTraits")?.jsonArray
+            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+        com.music.zenith.data.TrackLog.d(TAG, "audioTraits for '$album': $traits")
+        return traits
+    }
+
     // ---- Search scoring ------------------------------------------------
 
     /**

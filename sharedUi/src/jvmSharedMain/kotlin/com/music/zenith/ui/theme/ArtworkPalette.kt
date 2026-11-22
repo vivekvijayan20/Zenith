@@ -477,7 +477,7 @@ private fun Seed.toPalette(dark: Boolean): ArtworkPalette = if (dark) {
         // white body text at the top and of [background] at the bottom: a
         // sleeve that ends dark hands over almost invisibly, one that ends
         // bright leaves a page that is visibly lit from under the artwork.
-        wash = edge.withHsl(
+        wash = edge.orHueOf(dominant).withHsl(
             saturation = { adaptedArtworkSaturation(it, minimum = 0.18f, maximum = 0.58f) },
             lightness = { it.coerceIn(0.14f, 0.24f) },
         ),
@@ -506,7 +506,7 @@ private fun Seed.toPalette(dark: Boolean): ArtworkPalette = if (dark) {
             saturation = { adaptedArtworkSaturation(it, minimum = 0.14f, maximum = 0.50f) },
             lightness = { 0.91f },
         ),
-        wash = edge.withHsl(
+        wash = edge.orHueOf(dominant).withHsl(
             saturation = { adaptedArtworkSaturation(it, minimum = 0.12f, maximum = 0.46f) },
             lightness = { it.coerceIn(0.78f, 0.90f) },
         ),
@@ -557,6 +557,19 @@ private fun Color.withHsl(
     hsl[1] = saturation(hsl[1]).coerceIn(0f, 1f)
     hsl[2] = lightness(hsl[2]).coerceIn(0f, 1f)
     return Color(ColorUtils.HSLToColor(hsl))
+}
+
+/**
+ * Rata-rata pita tepi bawah bisa jadi abu-abu padahal sampulnya berwarna: warna yang
+ * berlawanan (langit biru, kulit oranye, rambut hitam, awan putih) saling meniadakan.
+ * Kalau begitu, halaman memakai hue dan saturasi warna dominan sampul, dengan
+ * kecerahan tetap dari tepi. Sampul yang memang netral tetap netral.
+ */
+private fun Color.orHueOf(dominant: Color): Color {
+    if (chroma() >= TINT_MIN_CHROMA || dominant.chroma() < TINT_MIN_CHROMA) return this
+    val own = FloatArray(3).also { ColorUtils.colorToHSL(toArgb(), it) }
+    val hue = FloatArray(3).also { ColorUtils.colorToHSL(dominant.toArgb(), it) }
+    return Color(ColorUtils.HSLToColor(floatArrayOf(hue[0], hue[1], own[2])))
 }
 
 /** Perceived brightness, used only to tell a dark theme from a light one. */
