@@ -184,6 +184,8 @@ class CrossfadeController(
      * a later gapless boundary without waiting on the service.
      */
     private val onArmIncoming: (MediaItem, String?) -> Unit = { _, _ -> },
+    /** The armed incoming item, only when AutoMix owns the overlap. */
+    private val onArmAutoMixIncoming: (MediaItem) -> Unit = {},
     /**
      * A smooth headroom trim for both players while two tracks overlap:
      * `1 / sqrt(incomingGain + outgoingGain)`, 1 otherwise.
@@ -1600,6 +1602,7 @@ class CrossfadeController(
             val after = into.nextMediaItemIndex
             val afterId = if (after == C.INDEX_UNSET) null else items.getOrNull(after)?.mediaId
             onArmIncoming(item, afterId)
+            if (smart) onArmAutoMixIncoming(item)
         }
         // Buffers without sounding. Started for real in [startFade].
         into.playWhenReady = false
@@ -2590,6 +2593,7 @@ class CrossfadeController(
             val after = into.nextMediaItemIndex
             val afterId = if (after == C.INDEX_UNSET) null else items.getOrNull(after)?.mediaId
             onArmIncoming(item, afterId)
+            onArmAutoMixIncoming(item)
         }
         into.playWhenReady = false
         inPort.armIncoming(LoopMixPort.InArm((session.handoverTrack * 1_000_000).roundToLong()))

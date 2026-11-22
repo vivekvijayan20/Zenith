@@ -6,9 +6,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +47,9 @@ private val SPLASH_NUDGE_DOWN = 4.dp
 
 /** The logo's height against the word's font size, as for the plain mark. */
 private const val SPLASH_MARK_TO_FONT = 0.83f
+
+/** How far the mark sits below the row's centre, as a share of the word's font size. */
+private const val SPLASH_MARK_DROP_TO_FONT = 0.05f
 
 /**
  * A full-screen splash in Apple Music's manner: a red gradient from a lighter
@@ -88,7 +93,9 @@ fun AppSplash(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(font * SPLASH_GAP_TO_FONT),
                 ) {
-                    mark(font * SPLASH_MARK_TO_FONT)
+                    Box(Modifier.offset(y = font * SPLASH_MARK_DROP_TO_FONT)) {
+                        mark(font * SPLASH_MARK_TO_FONT)
+                    }
                     Text(
                         text = "Music",
                         color = Color.White,

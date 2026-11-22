@@ -417,6 +417,16 @@ internal fun shouldSkipAfterDislike(
     currentVideoId: String?,
 ): Boolean = previousStatus != LikeStatus.DISLIKE && targetVideoId == currentVideoId
 
+/**
+ * [shown] keeps [page]'s own order: every entry is the page's, in the page's
+ * sequence, though a search may have left some out. A sort breaks that, and
+ * then the page snapshot can't stand in for the list on screen.
+ */
+internal fun inPageOrder(shown: List<String>, page: List<String>): Boolean {
+    val rest = page.iterator()
+    return shown.all { key -> rest.asSequence().any { it == key } }
+}
+
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -3686,11 +3696,14 @@ private fun ZenithApp(
                                     page.browseId,
                                 )
                                 val selected = songs.getOrNull(index)
-                                val pageSongKeys =
-                                    (page.songs as? UiState.Success)?.data.orEmpty().mapTo(HashSet()) { it.contextEntryKey() }
+                                val pageKeys =
+                                    (page.songs as? UiState.Success)?.data.orEmpty().map { it.contextEntryKey() }
+                                val pageSongKeys = pageKeys.toHashSet()
                                 val useBounded =
                                     (page.type == BrowseType.ALBUM || page.type == BrowseType.PLAYLIST) &&
                                         selected?.contextEntryKey()?.let(pageSongKeys::contains) == true &&
+                                        // A sorted list plays as sorted, not in the page's order.
+                                        inPageOrder(songs.map { it.contextEntryKey() }, pageKeys) &&
                                         !CastController.state.value.casting
                                 val latestPage = if (useBounded) {
                                     viewModel.takePlaybackContext(page.browseId)
@@ -3732,6 +3745,14 @@ private fun ZenithApp(
                                 onSongClick = ::playDetailSongs,
                                 onSongLongPress = { openSongMenu(withAlbum(it)) },
                                 onSongSwipe = { onSongSwipe(withAlbum(it)) },
+                                onPlay = { songs ->
+                                    if (songs.isNotEmpty()) {
+                                        // Play is the release in order, so a shuffle left on
+                                        // from the last queue goes off before this one is built.
+                                        QueueShuffle.disableForNextQueue()
+                                        playDetailSongs(songs, 0)
+                                    }
+                                },
                                 onShuffle = { songs ->
                                     if (songs.isNotEmpty()) {
                                         // Shuffle goes on first so the queue is built shuffled
@@ -6192,7 +6213,10 @@ private fun ZenithApp(
                 startRenaming = browseRenameInSheet,
                 onPlayNext = act(playSongsNext),
                 onAddToQueue = act(addSongsToQueue),
-                onPlay = act { songs -> play(songs, 0) }.takeIf { target.fromCard },
+                onPlay = act { songs ->
+                    QueueShuffle.disableForNextQueue()
+                    play(songs, 0)
+                }.takeIf { target.fromCard },
                 onShuffle = act { songs ->
                     // As on a release page: shuffle goes on before the queue
                     // is built, so it is built shuffled rather than played

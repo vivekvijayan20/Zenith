@@ -23,7 +23,9 @@ import com.music.zenith.data.remote.RemoteArtworkStore
 @Composable
 fun rememberRemoteArtworkUrl(song: Song?): String? {
     val context = LocalContext.current
-    val key = song?.videoId
+    // Id and thumbnail both: a downloaded copy is filed under the id of the
+    // one it came from, so the same id can carry a content:// and an https:// cover.
+    val key = song?.let { it.videoId to it.thumbnailUrl }
     var resolved by remember(key) { mutableStateOf(song?.thumbnailUrl) }
     LaunchedEffect(key) {
         if (song != null && song.thumbnailUrl == null &&

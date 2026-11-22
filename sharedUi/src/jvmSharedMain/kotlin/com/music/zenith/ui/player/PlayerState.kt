@@ -27,9 +27,11 @@ import coil3.PlatformContext
 import coil3.compose.LocalPlatformContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImagePainter
+import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.music.zenith.data.canvas.CanvasArtwork
+import com.music.zenith.data.model.PLAYER_ART_MEMORY_CACHE_KEY_EXTRA
 import com.music.zenith.data.model.Song
 import com.music.zenith.data.model.artworkAt
 import kotlin.math.abs
@@ -102,7 +104,12 @@ internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
  * Everything here is keyed on the cover's [url] — see [rememberPlayerArtwork].
  */
 @Stable
-internal class PlayerArtwork(val url: String?, private val context: PlatformContext) {
+internal class PlayerArtwork(
+    val url: String?,
+    private val context: PlatformContext,
+    /** The last track's cover, drawn in this one's place until it loads — see [lastCover]. */
+    private val holdOver: MemoryCache.Key? = null,
+) {
     /**
      * Whether the cover is on screen. Keyed on the artwork rather than on the
      * track, because that is what it actually describes and because only Coil
@@ -131,6 +138,17 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
     /** Latched on an error, and only upwards — cleared by the retry itself. */
     internal var failed by mutableStateOf(false)
 
+    /** This cover's memory-cache entry, once it has been drawn. */
+    private var shown: MemoryCache.Key? = null
+
+    /**
+     * What the next cover should stand on while it loads: this one, or, if it
+     * never reached the screen (a track skipped straight past), the one it was
+     * standing on itself. Without it every new cover started from an empty
+     * painter and the placeholder music note showed between two good covers.
+     */
+    val lastCover: MemoryCache.Key? get() = shown ?: holdOver
+
     /**
      * The one request for this cover, built once.
      *
@@ -151,6 +169,11 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
         ImageRequest.Builder(context)
             .data(url)
             .size(ART_PX)
+            // Other surfaces may load this same URL at thumbnail sizes. Keep
+            // their cache entries from replacing the image used for hold-over;
+            // the matching widget request uses this same extra.
+            .memoryCacheKeyExtra(PLAYER_ART_MEMORY_CACHE_KEY_EXTRA, ART_PX.toString())
+            .placeholderMemoryCacheKey(holdOver)
             // Dissolve antar cover sudah ditangani ArtworkDissolve. Crossfade
             // 200ms bawaan ImageLoader membuat cover lama (layer outgoing) fade-in
             // dari transparan dan cover baru fade-in dari kosong, sementara
@@ -174,7 +197,10 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
         // it is [failed]'s own effect, and clearing it from a Loading state here
         // would cancel that effect's wait every time the painter passed back
         // through Loading.
-        if (state is AsyncImagePainter.State.Success) failed = false
+        if (state is AsyncImagePainter.State.Success) {
+            failed = false
+            shown = state.result.memoryCacheKey
+        }
         if (state is AsyncImagePainter.State.Error) failed = true
     }
 
@@ -206,6 +232,7 @@ internal fun PrefetchNeighbourArtwork(queue: List<Song>, queueIndex: Int) {
                 ImageRequest.Builder(context)
                     .data(url)
                     .size(ART_PX)
+                    .memoryCacheKeyExtra(PLAYER_ART_MEMORY_CACHE_KEY_EXTRA, ART_PX.toString())
                     .crossfade(false)
                     .build(),
             )
@@ -217,7 +244,10 @@ internal fun PrefetchNeighbourArtwork(queue: List<Song>, queueIndex: Int) {
 internal fun rememberPlayerArtwork(remoteArt: String?): PlayerArtwork {
     val context = LocalPlatformContext.current
     val artUrl = remoteArt?.artworkAt(ART_PX)
-    val art = remember(artUrl) { PlayerArtwork(artUrl, context) }
+    val last = remember { arrayOfNulls<PlayerArtwork>(1) }
+    val art = remember(artUrl) {
+        PlayerArtwork(artUrl, context, last[0]?.lastCover).also { last[0] = it }
+    }
     LaunchedEffect(artUrl, art.failed) {
         // A track with no artwork at all fails immediately and would fail
         // identically three more times: there is no request to make, so there is

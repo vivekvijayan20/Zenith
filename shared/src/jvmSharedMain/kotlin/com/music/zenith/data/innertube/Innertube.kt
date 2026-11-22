@@ -98,6 +98,14 @@ object Innertube {
     private const val WEB_REMIX_VERSION = "1.20250101.01.00"
     private const val WEB_REMIX_CLIENT_ID = "67"
 
+    /**
+     * The Android Music client, which is the only one YouTube serves its timed
+     * lyrics to — see [browseMobile]. Everything else in the app keeps asking
+     * as the web client.
+     */
+    private const val ANDROID_MUSIC_CLIENT_ID = "21"
+    private const val ANDROID_MUSIC_VERSION = "7.21.50"
+
     private const val TAG = "Zenith"
 
     /** Session cookie captured by the login WebView; null = browse as guest. */
@@ -611,6 +619,30 @@ object Innertube {
             f.delete()
         }
     }
+
+    /**
+     * The same page as [browse], asked as the Android Music client.
+     *
+     * YouTube Music only hands out its timed lyrics to the mobile clients: the
+     * web client is answered with the plain `musicDescriptionShelfRenderer`,
+     * while the phone gets an `elementRenderer` carrying `timedLyricsModel`.
+     * The lyrics tab's own page is the only thing this is needed for, so it
+     * stays a separate call rather than changing the identity of the rest.
+     *
+     * Anonymous on purpose: lyrics are not tied to an account, and an Android
+     * client context paired with a web session's cookie is not a combination
+     * Google recognises.
+     */
+    suspend fun browseMobile(browseId: String, params: String? = null): JsonObject =
+        postMusicAnonymous(
+            endpoint = "browse",
+            clientId = ANDROID_MUSIC_CLIENT_ID,
+            clientName = "ANDROID_MUSIC",
+            clientVersion = ANDROID_MUSIC_VERSION,
+        ) {
+            put("browseId", browseId)
+            params?.let { put("params", it) }
+        }
 
     suspend fun browse(browseId: String, params: String? = null): JsonObject {
         val file = browseCacheFile(browseId, params)
@@ -1309,9 +1341,12 @@ object Innertube {
         endpoint: String,
         /** The context's `gl`; null sends none. */
         region: String? = currentRegion,
+        /** Which client to ask as; the web one unless a caller needs another. */
+        clientId: String = WEB_REMIX_CLIENT_ID,
+        clientName: String = "WEB_REMIX",
+        clientVersion: String = webRemixVersion,
         bodyExtras: JsonObjectBuilder.() -> Unit,
     ): JsonObject {
-        val clientVersion = webRemixVersion
         return withRetry {
             client.post("$MUSIC_BASE/$endpoint") {
                 contentType(ContentType.Application.Json)
@@ -1319,7 +1354,7 @@ object Innertube {
                 header("X-Origin", MUSIC_ORIGIN)
                 header("Origin", MUSIC_ORIGIN)
                 header("Referer", "$MUSIC_ORIGIN/")
-                header("X-YouTube-Client-Name", WEB_REMIX_CLIENT_ID)
+                header("X-YouTube-Client-Name", clientId)
                 header("X-YouTube-Client-Version", clientVersion)
                 header("Accept-Language", acceptLanguageHeader)
                 parameter("hl", currentLanguage)
@@ -1329,7 +1364,7 @@ object Innertube {
                     buildJsonObject {
                         putJsonObject("context") {
                             putJsonObject("client") {
-                                put("clientName", "WEB_REMIX")
+                                put("clientName", clientName)
                                 put("clientVersion", clientVersion)
                                 put("hl", currentLanguage)
                                 region?.let { put("gl", it) }

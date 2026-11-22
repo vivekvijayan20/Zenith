@@ -73,10 +73,20 @@ object CanvasFadeTuning {
     /** Panel dibuat transparan agar layar di baliknya terlihat. */
     val translucent = mutableStateOf(false)
 
+    /**
+     * Saklar debug: true = klip Canvas tetap diputar saat player digeser ke atau dari
+     * mini player (logika lama). Bawaan false, jadi klip dijeda selama player bergerak.
+     */
+    val keepPlayingWhileDocking = mutableStateOf(false)
+
+    /** Klip dijeda selama player bergerak? Hanya bisa dimatikan lewat panel debug saat mode debug aktif. */
+    fun pausesWhileDocking(): Boolean = !(unlocked.value && keepPlayingWhileDocking.value)
+
     /** Matikan mode debug dan lepaskan saklar sementara volume/lirik. */
     fun lock() {
         unlocked.value = false
         panelOpen.value = false
+        keepPlayingWhileDocking.value = false
         ControlLayoutTuning.clearOverrides()
     }
 
@@ -551,6 +561,8 @@ private fun CanvasTab(canvasActive: Boolean) {
     if (!canvasActive) {
         Caption("Klip Canvas tidak tampil di lagu ini. Nilai tetap bisa disetel dan dipakai saat klip muncul.")
     }
+    val keepPlaying = CanvasFadeTuning.keepPlayingWhileDocking
+    SwitchRow("Klip tetap jalan saat player bergerak (logika lama)", keepPlaying.value) { keepPlaying.value = it }
     TunerRow("Tinggi (batas blur)", height.floatValue, 0f..2.0f, 0.01f) { height.floatValue = it }
     TunerRow("Geser Y (dp, + turun)", offset.floatValue, -200f..400f, 1f) { offset.floatValue = it }
     TunerRow("Lekuk V (sisi)", curve.floatValue, 0f..3.0f, 0.01f) { curve.floatValue = it }

@@ -4,6 +4,7 @@ import android.content.Context
 import com.music.zenith.R
 import com.music.zenith.data.model.Song
 import com.music.zenith.data.model.artworkAt
+import com.music.zenith.data.model.youTubeThumbnailFallback
 import com.my.kizzy.rpc.KizzyRPC
 import com.my.kizzy.rpc.RpcImage
 import java.util.Locale
@@ -120,6 +121,7 @@ class DiscordRPC(
             // which is anything that isn't an http URL — sends none, and Discord
             // draws the Zenith application's own icon in its place.
             largeImage = song.artworkAt(ART_PX)
+                ?.let { youTubeThumbnailFallback(it) ?: it }
                 ?.takeIf { it.startsWith("http") }
                 ?.let(RpcImage::ExternalImage),
             smallImage = null,

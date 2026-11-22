@@ -41,6 +41,7 @@ import com.music.zenith.ui.graphics.ColorUtils
 import com.music.zenith.ui.graphics.argbPixels
 import com.music.zenith.ui.graphics.imageBitmapOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -533,6 +534,27 @@ fun cyclingMeshPalette(
 private val artworkPaletteCache = object : LinkedHashMap<String, MeshPalette>(32, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MeshPalette>?): Boolean =
         size > 64
+}
+
+/**
+ * Fills [artworkPaletteCache] for [imageUrl] ahead of time, with the same
+ * request and the same maths as [rememberArtworkColors], so the palette is
+ * already there when that cover appears. Call on Main, like the cache's
+ * other writers.
+ */
+internal suspend fun prefetchArtworkPalette(context: PlatformContext, imageUrl: String) {
+    if (artworkPaletteCache.containsKey(imageUrl)) return
+    val request = ImageRequest.Builder(context)
+        .data(imageUrl)
+        .size(128)
+        .forPixelAccess()
+        .build()
+    val bitmap = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)
+        ?.image?.toImageBitmap() ?: return
+    val computed = withContext(Dispatchers.Default) {
+        MeshPalette(paletteOf(bitmap), edgeColorsOf(bitmap), isLightCover(bitmap))
+    }
+    artworkPaletteCache[imageUrl] = computed
 }
 
 /**

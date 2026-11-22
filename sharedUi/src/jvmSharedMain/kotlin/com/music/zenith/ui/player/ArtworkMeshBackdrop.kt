@@ -40,10 +40,13 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.music.zenith.ui.graphics.ColorUtils
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
+import coil3.request.crossfade
 import com.music.zenith.data.model.CARD_ART_PX
+import com.music.zenith.data.model.PLAYER_ART_MEMORY_CACHE_KEY_EXTRA
 import com.music.zenith.data.model.artworkAt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -138,6 +141,50 @@ fun rememberFullArtworkBlurImage(
         image = ready
     }
     return image
+}
+
+/**
+ * Warms everything the next cover needs the moment it is on screen: its
+ * player-size decode, its backdrop blur, its mesh and its palette. Called when
+ * AutoMix arms the incoming track, so none of it is first computed on the
+ * frame the cover changes. Call on Main, like the effects that own the
+ * URL-keyed caches.
+ */
+suspend fun prefetchAutoMixArtwork(context: PlatformContext, imageUrl: String) {
+    val loader = SingletonImageLoader.get(context)
+    if (meshCache[imageUrl] == null) {
+        val request = ImageRequest.Builder(context)
+            .data(imageUrl.artworkAt(ART_PX))
+            .size(MESH_PX)
+            .forPixelAccess()
+            .build()
+        val bitmap = (loader.execute(request) as? SuccessResult)?.image?.toImageBitmap()
+        if (bitmap != null) {
+            withContext(Dispatchers.Default) { meshOf(bitmap, imageUrl.hashCode()) }
+                ?.let { meshCache[imageUrl] = it }
+        }
+    }
+    if (fullBlurCache[imageUrl] == null) {
+        val request = ImageRequest.Builder(context)
+            .data(imageUrl.artworkAt(ART_PX))
+            .size(FULL_BLUR_SOURCE_PX)
+            .forPixelAccess()
+            .build()
+        val bitmap = (loader.execute(request) as? SuccessResult)?.image?.toImageBitmap()
+        if (bitmap != null) {
+            fullBlurCache[imageUrl] = withContext(Dispatchers.Default) { bitmap.boxBlurred(FULL_BLUR_PASSES) }
+        }
+    }
+    prefetchArtworkPalette(context, imageUrl)
+    // Same request as the player's own cover, so the sleeve finds it in memory.
+    loader.execute(
+        ImageRequest.Builder(context)
+            .data(imageUrl.artworkAt(ART_PX))
+            .size(ART_PX)
+            .memoryCacheKeyExtra(PLAYER_ART_MEMORY_CACHE_KEY_EXTRA, ART_PX.toString())
+            .crossfade(false)
+            .build(),
+    )
 }
 
 /**

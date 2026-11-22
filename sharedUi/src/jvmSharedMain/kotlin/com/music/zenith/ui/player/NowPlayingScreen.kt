@@ -3206,6 +3206,7 @@ fun NowPlayingScreen(
                             // full-screen Spotify Canvas, though: that is the whole
                             // screen, and keeps playing under them, blurred live.
                             pausedForTransition = (!liveCanvasPanels && (lyricsOpen || queueOpen)) ||
+                                (dockMoving && CanvasFadeTuning.pausesWhileDocking()) ||
                                 queueDragging ||
                                 (collapseStarted && !(liveCanvasPanels && (lyricsOpen || queueOpen))) ||
                                 (overlayOpen.value && !clipFullscreen),

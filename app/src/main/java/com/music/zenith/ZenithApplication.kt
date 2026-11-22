@@ -266,6 +266,9 @@ class ZenithApplication : Application(), SingletonImageLoader.Factory, Configura
             // the header is attached per request instead. See WebDavCoilAuth.
             .components {
                 add(WebDavCoilAuth())
+                // A larger YouTube cover than the video has 404s; this
+                // falls back to the size every video has.
+                add(com.music.zenith.data.YouTubeThumbnailFallback())
                 // Covers filed on the SMB share; anything else falls
                 // through to Coil's own fetchers. See SmbCoverFetcher.
                 add(SmbCoverFetcher.Factory())

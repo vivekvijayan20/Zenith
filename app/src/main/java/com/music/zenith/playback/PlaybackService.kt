@@ -61,6 +61,7 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaConstants
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaLibraryService.LibraryParams
@@ -98,6 +99,7 @@ import com.music.zenith.data.listentogether.partyUpcomingAfter
 import com.music.zenith.R
 import com.music.zenith.data.LocalMediaRepository
 import com.music.zenith.data.OfflinePlaylists
+import com.music.zenith.data.canvas.CanvasRepository
 import com.music.zenith.data.innertube.InnertubeParser
 import com.music.zenith.data.YtMusicRepository
 import com.music.zenith.data.lyrics.EmbeddedLyrics
@@ -129,11 +131,13 @@ import com.music.zenith.data.innertube.StreamResolver
 import com.music.zenith.data.model.LikeStatus
 import com.music.zenith.data.model.Song
 import com.music.zenith.data.model.isUnresolvedSpotify
+import com.music.zenith.data.remote.RemoteArtworkStore
 import com.music.zenith.data.scrobbling.LastFM
 import com.music.zenith.data.scrobbling.ListenBrainzManager
 import com.music.zenith.data.scrobbling.ScrobbleManager
 import com.music.zenith.data.settings.AppSettings
 import com.music.zenith.data.settings.AudioQuality
+import com.music.zenith.ui.player.prefetchAutoMixArtwork
 import com.music.zenith.data.settings.BitPerfectMode
 import com.music.zenith.data.settings.permits
 import com.music.zenith.data.settings.EqualizerMode
@@ -1826,6 +1830,7 @@ class PlaybackService : MediaLibraryService() {
         )
             .setId(SESSION_ID)
             .setSessionActivity(sessionActivity())
+            .setSessionExtras(transportSlotReservations())
             .build()
         refreshCustomLayouts()
 
@@ -1833,6 +1838,19 @@ class PlaybackService : MediaLibraryService() {
         // whose queue is already restored.
         CastController.ensureStarted(this)
         CastController.attach(castPlayback)
+    }
+
+    /**
+     * Keeps Previous and Next in their places even while there is nowhere to go.
+     *
+     * Without these, Media3 moves the first custom button (Favorite) into the
+     * Back or Forward slot when Previous or Next is unavailable, so on the last
+     * song a tap on "Next" became a Like. With them set, an unavailable
+     * Previous or Next just leaves its slot empty or disabled.
+     */
+    private fun transportSlotReservations() = Bundle().apply {
+        putBoolean(MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV, true)
+        putBoolean(MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT, true)
     }
 
     private fun newSessionPlayer(player: Player, crossfade: CrossfadeController) = SessionPlayer(
@@ -1877,6 +1895,48 @@ class PlaybackService : MediaLibraryService() {
                     CastStream(url.toString(), CastPlayback.mimeTypeOf(url))
                 }
             } else null
+        }
+    }
+
+    private var autoMixArtworkJob: Job? = null
+
+    /**
+     * Warms the incoming track's cover, backdrop and canvas as soon as AutoMix
+     * arms it, so none of it is first computed on the frame the cover changes.
+     * A newer arm cancels one still running.
+     */
+    private fun prefetchAutoMixIncoming(item: MediaItem) {
+        autoMixArtworkJob?.cancel()
+        autoMixArtworkJob = scope.launch {
+            val song = item.toSong()
+            // The canvas lookup is independent of the still art, so it runs alongside.
+            launch {
+                if (AppSettings.animatedCanvas.value &&
+                    (AppSettings.meteredConnection.value != true || AppSettings.canvasOverCellular.value)
+                ) {
+                    try {
+                        CanvasRepository.canvasFor(song)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Decoration only: a miss is the normal answer.
+                    }
+                }
+            }
+            try {
+                val artUrl = song.thumbnailUrl ?: if (
+                    song.videoId.startsWith("webdav:") || song.videoId.startsWith("smb:")
+                ) {
+                    withContext(Dispatchers.IO) { RemoteArtworkStore.resolveArt(this@PlaybackService, song) }
+                } else {
+                    null
+                }
+                if (artUrl != null) prefetchAutoMixArtwork(this@PlaybackService, artUrl)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The cover then loads the ordinary way when it appears.
+            }
         }
     }
 
@@ -1925,6 +1985,7 @@ class PlaybackService : MediaLibraryService() {
             // levelled on its own sink before it renders a frame, and the
             // outgoing track keeps its own gain for the rest of the blend.
             onArmIncoming = { item, nextId -> spareLoudness().track(item.mediaId, nextId) },
+            onArmAutoMixIncoming = ::prefetchAutoMixIncoming,
             // Both sinks, not a role: the trim is about what the pair sums to.
             onBlendHeadroom = { trim ->
                 loudnessA.setBlendTrim(trim)
@@ -9635,9 +9696,10 @@ class PlaybackService : MediaLibraryService() {
 
         /**
          * How much of a track has to be left for a mid-track quality swap to
-         * be worth the break in the audio it costs.
+         * be worth the break in the audio it costs. Long enough that an upgrade
+         * never competes with an Automix transition and its analysis.
          */
-        const val UPGRADE_MIN_REMAINING_MS = 20_000L
+        const val UPGRADE_MIN_REMAINING_MS = 45_000L
 
         /** Minimum interval between accepted listener-requested quality retries. */
         const val MANUAL_UPGRADE_COOLDOWN_MS = 30_000L
