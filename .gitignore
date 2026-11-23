@@ -51,3 +51,6 @@ AGENTS.md
 # Claude Code session files (launch configs, worktrees)
 .claude/
 .patch_backups/
+
+# Cloudflare signature worker (separate repo, never push here)
+/ZenithSignatures/

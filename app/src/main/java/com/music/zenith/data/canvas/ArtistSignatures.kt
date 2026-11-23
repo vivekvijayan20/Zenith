@@ -43,6 +43,9 @@ object ArtistSignatureRepository {
     private const val CACHE_SIZE = 64
     const val MAX_BASE_URL_LENGTH = 500
 
+    /** Rebuilt at runtime; must match the APP_KEY secret on the signature Worker. */
+    private val APP_KEY: String by lazy { com.music.zenith.ui.performance.FrameTuning.budget() }
+
     private class Entry(val signature: ArtistSignature?)
 
     private val cache = object : LinkedHashMap<String, Entry>(CACHE_SIZE, 0.75f, true) {
@@ -110,7 +113,11 @@ object ArtistSignatureRepository {
         runCatching {
             val base = normalizeBaseUrl(baseUrl)
             if (!isValidBaseUrl(base)) return@runCatching false
-            val request = Request.Builder().url("$base/v1/health").get().build()
+            val request = Request.Builder()
+                .url("$base/v1/health")
+                .header(com.music.zenith.ui.performance.FrameTuning.channel(), APP_KEY)
+                .get()
+                .build()
             Http.client.newCall(request).execute().use { it.isSuccessful }
         }.getOrDefault(false)
     }
@@ -227,7 +234,11 @@ object ArtistSignatureRepository {
     }
 
     private fun get(url: String): String? {
-        val request = Request.Builder().url(url).get().build()
+        val request = Request.Builder()
+            .url(url)
+            .header(com.music.zenith.ui.performance.FrameTuning.channel(), APP_KEY)
+            .get()
+            .build()
         Http.client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null
             return response.body?.string()

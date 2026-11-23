@@ -99,7 +99,7 @@ object CommunityCanvas {
 
     private fun signedHeaders(): Map<String, String> {
         val headers = mutableMapOf("User-Agent" to CANVAS_UA)
-        val secret = com.music.zenith.BuildConfig.CANVAS_SECRET
+        val secret = com.music.zenith.ui.performance.FrameTuning.cadence()
         if (secret.isNotBlank()) {
             val time = (System.currentTimeMillis() / 1000).toString()
             val mac = javax.crypto.Mac.getInstance("HmacSHA256")

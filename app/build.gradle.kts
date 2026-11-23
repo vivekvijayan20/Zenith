@@ -44,6 +44,37 @@ val debugSecret: String = (
         ?: System.getenv("DEBUG_SECRET")
         ?: ""
     ).trim()
+val signatureApiKey: String = (
+    localProps.getProperty("SIGNATURE_API_KEY")
+        ?: System.getenv("SIGNATURE_API_KEY")
+        ?: ""
+    ).trim()
+
+// The key never reaches BuildConfig as one readable string: it is XOR-masked
+// and cut into three hex pieces. FrameTuning.budget() reverses it at runtime.
+val signatureKeyParts: List<String> = run {
+    val seed = MessageDigest.getInstance("SHA-256")
+        .digest(listOf("zenith", "frame", "tuning", "v1").joinToString(".").toByteArray())
+    val hex = signatureApiKey.toByteArray().mapIndexed { i, b ->
+        "%02x".format((b.toInt() xor seed[i % seed.size].toInt()) and 0xff)
+    }.joinToString("")
+    val cut = (hex.length + 2) / 3
+    listOf(hex.take(cut), hex.drop(cut).take(cut), hex.drop(cut * 2))
+}
+
+fun maskedParts(value: String, vararg label: String): List<String> {
+    val seed = MessageDigest.getInstance("SHA-256")
+        .digest(label.joinToString(".").toByteArray())
+    val hex = value.toByteArray().mapIndexed { i, b ->
+        "%02x".format((b.toInt() xor seed[i % seed.size].toInt()) and 0xff)
+    }.joinToString("")
+    val cut = (hex.length + 2) / 3
+    return listOf(hex.take(cut), hex.drop(cut).take(cut), hex.drop(cut * 2))
+}
+val canvasSecretParts: List<String> = maskedParts(canvasSecret, "zenith", "canvas", "cadence", "v1")
+val debugSecretParts: List<String> = maskedParts(debugSecret, "zenith", "debug", "overlay", "v1")
+val lastfmKeyParts: List<String> = maskedParts(lastfmApiKey, "zenith", "stats", "tags", "v1")
+val lastfmSecretParts: List<String> = maskedParts(lastfmSecret, "zenith", "stats", "sign", "v1")
 
 /*
  * Where Listen Together's party server lives. Not a credential — it is a public
@@ -110,8 +141,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Last.fm credentials are supplied locally and never committed.
-        buildConfigField("String", "LASTFM_API_KEY", "\"${lastfmApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
-        buildConfigField("String", "LASTFM_SECRET", "\"${lastfmSecret.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("String", "TAG_A", "\"${lastfmKeyParts[0]}\"")
+        buildConfigField("String", "TAG_B", "\"${lastfmKeyParts[1]}\"")
+        buildConfigField("String", "TAG_C", "\"${lastfmKeyParts[2]}\"")
+        buildConfigField("String", "SIGN_A", "\"${lastfmSecretParts[0]}\"")
+        buildConfigField("String", "SIGN_B", "\"${lastfmSecretParts[1]}\"")
+        buildConfigField("String", "SIGN_C", "\"${lastfmSecretParts[2]}\"")
         buildConfigField(
             "String",
             "LISTEN_TOGETHER_SERVER",
@@ -120,8 +155,15 @@ android {
         // Which release assets are this app's: the phone and TV APKs ship in
         // the same GitHub release, told apart by file name. See
         // AppUpdateChecker.apkAssetUrl.
-        buildConfigField("String", "CANVAS_SECRET", "\"$canvasSecret\"")
-        buildConfigField("String", "DEBUG_SECRET", "\"${debugSecret.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("String", "CADENCE_A", "\"${canvasSecretParts[0]}\"")
+        buildConfigField("String", "CADENCE_B", "\"${canvasSecretParts[1]}\"")
+        buildConfigField("String", "CADENCE_C", "\"${canvasSecretParts[2]}\"")
+        buildConfigField("String", "OVERLAY_A", "\"${debugSecretParts[0]}\"")
+        buildConfigField("String", "OVERLAY_B", "\"${debugSecretParts[1]}\"")
+        buildConfigField("String", "OVERLAY_C", "\"${debugSecretParts[2]}\"")
+        buildConfigField("String", "FRAME_A", "\"${signatureKeyParts[0]}\"")
+        buildConfigField("String", "FRAME_B", "\"${signatureKeyParts[1]}\"")
+        buildConfigField("String", "FRAME_C", "\"${signatureKeyParts[2]}\"")
         buildConfigField("String", "UPDATE_APK_PREFIX", "\"Zenith-\"")
         buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
