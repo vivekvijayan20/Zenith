@@ -264,7 +264,6 @@ import com.music.zenith.ui.components.GlassSearchBar
 import com.music.zenith.ui.components.searchMiniRise
 import com.music.zenith.ui.components.searchMiniHide
 import androidx.compose.ui.layout.layout
-import com.music.zenith.ui.components.GlassSearchMorph
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.WindowInsets
@@ -284,7 +283,6 @@ import com.music.zenith.ui.components.backdrop.Backdrop
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.music.zenith.ui.components.backdrop.backdrops.snapshotBackdropSource
 
-import com.music.zenith.ui.components.backdrop.drawPlainBackdrop
 import com.music.zenith.ui.components.backdrop.effects.blur
 import com.music.zenith.ui.components.isGlassSupported
 import com.music.zenith.data.sources.SourceConfig
@@ -295,7 +293,6 @@ import com.music.zenith.ui.components.MiniPlayer
 import com.music.zenith.ui.components.QueueActionNotice
 import com.music.zenith.ui.components.QueueActionNoticeHost
 import com.music.zenith.ui.components.TopBarAccountButton
-import com.music.zenith.ui.screens.SegmentedControl
 import com.music.zenith.ui.screens.LocalMostPlayedArt
 import com.music.zenith.ui.player.LocalMotionLyricLine
 import com.music.zenith.ui.player.LocalLyricsGlassDisc
@@ -310,7 +307,6 @@ import com.motion.lyrics.toMotionWords
 import com.music.zenith.ui.screens.LocalMixCoverBackground
 import com.music.zenith.ui.components.OrganicFluidBackground
 import com.music.zenith.ui.screens.MostPlayedArt
-import com.music.zenith.ui.components.SearchField
 import com.music.zenith.ui.components.SearchBottomField
 import com.music.zenith.sharedui.resources.Res as SharedRes
 import com.music.zenith.sharedui.resources.search_hint

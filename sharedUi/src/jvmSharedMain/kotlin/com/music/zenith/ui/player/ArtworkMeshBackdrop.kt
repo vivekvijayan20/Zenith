@@ -108,6 +108,8 @@ fun rememberFullArtworkBlurImage(
     prepare: Boolean = true,
     /** A frame off the playing clip; when set, the backdrop is its blur instead of the still's. */
     liveFrame: ImageBitmap? = null,
+    /** Frame hampir hitam dilewati (refresh mesh). Frame beku panel tetap di-blur apa adanya. */
+    rejectBlackFrame: Boolean = true,
 ): ImageBitmap? {
     val context = LocalPlatformContext.current
     var image by remember { mutableStateOf(imageUrl?.let(fullBlurCache::get)) }
@@ -116,8 +118,14 @@ fun rememberFullArtworkBlurImage(
     // frame, blurred off the main thread; the Crossfade in the backdrop eases it in.
     LaunchedEffect(liveFrame) {
         val frame = liveFrame ?: return@LaunchedEffect
-        if (isLikelyBlackFrame(frame)) return@LaunchedEffect
-        image = withContext(Dispatchers.Default) { frame.boxBlurred(FULL_BLUR_PASSES) }
+        // Frame grab bisa ~720px; diperkecil dulu ke ukuran blur supaya blur selesai
+        // dalam hitungan milidetik dan panel tidak menunggu lama sebelum klip melebur.
+        val blurred = withContext(Dispatchers.Default) {
+            val small = frame.downscaledTo(FULL_BLUR_SOURCE_PX)
+            if (rejectBlackFrame && isLikelyBlackFrame(small)) null
+            else small.boxBlurred(FULL_BLUR_PASSES)
+        } ?: return@LaunchedEffect
+        image = blurred
     }
 
     LaunchedEffect(imageUrl, artPx, prepare) {
@@ -666,6 +674,40 @@ private const val FULL_BLUR_PASSES = 3
 /** A handful of recent covers; each entry is only 64 KiB at 128x128 ARGB. */
 private val fullBlurCache = object : LinkedHashMap<String, ImageBitmap>(0, 0.75f, true) {
     override fun removeEldestEntry(eldest: Map.Entry<String, ImageBitmap>) = size > 8
+}
+
+/** Rata-rata kotak ke sisi terpanjang [maxSide]; dikembalikan apa adanya bila sudah kecil. */
+private fun ImageBitmap.downscaledTo(maxSide: Int): ImageBitmap {
+    val longest = maxOf(width, height)
+    if (longest <= maxSide || width < 1 || height < 1) return this
+    val outWidth = (width.toLong() * maxSide / longest).toInt().coerceAtLeast(1)
+    val outHeight = (height.toLong() * maxSide / longest).toInt().coerceAtLeast(1)
+    val src = argbPixels()
+    val out = IntArray(outWidth * outHeight)
+    for (y in 0 until outHeight) {
+        val y0 = y * height / outHeight
+        val y1 = ((y + 1) * height / outHeight).coerceIn(y0 + 1, height)
+        for (x in 0 until outWidth) {
+            val x0 = x * width / outWidth
+            val x1 = ((x + 1) * width / outWidth).coerceIn(x0 + 1, width)
+            var red = 0
+            var green = 0
+            var blue = 0
+            var count = 0
+            for (sy in y0 until y1) {
+                val row = sy * width
+                for (sx in x0 until x1) {
+                    val color = src[row + sx]
+                    red += color shr 16 and 0xFF
+                    green += color shr 8 and 0xFF
+                    blue += color and 0xFF
+                    count++
+                }
+            }
+            out[y * outWidth + x] = argb(red / count, green / count, blue / count)
+        }
+    }
+    return imageBitmapOf(out, outWidth, outHeight)
 }
 
 /** Three small box passes approximate a broad Gaussian blur at thumbnail scale. */

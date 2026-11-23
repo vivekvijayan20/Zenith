@@ -662,6 +662,9 @@ private const val DOCK_RIDE_SHARE = 1f
 
 /** Blur radius (dp) and dim of a Spotify Canvas kept playing behind the lyrics and queue. */
 private const val CANVAS_PANEL_BLUR_DP = 28f
+
+/** Percobaan ambil frame terakhir klip saat panel dibuka (satu per frame) sebelum menyerah. */
+private const val PANEL_FRAME_GRAB_ATTEMPTS = 8
 private const val CANVAS_PANEL_DIM = 0.35f
 
 /** How far the static card cover trails the panel's progress while docking; 1 = in step, higher = more gap. */
@@ -1805,10 +1808,27 @@ fun NowPlayingScreen(
     // legacy di belakang panel; klip sendiri sudah berhenti pada frame itu.
     var canvasPanelFrame by remember(canvas?.url) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(lyricsOpen || queueOpen, canvas?.url) {
-        if (lyricsOpen || queueOpen) {
-            val grabbed = (fullFrameGrab.grab ?: canvasFrameGrab.grab)?.invoke()
-            if (grabbed != null) canvasPanelFrame = grabbed
+        if (!(lyricsOpen || queueOpen)) return@LaunchedEffect
+        // Ambil frame terakhir klip langsung saat panel dibuka. Bila pembaca belum
+        // siap, mengembalikan null, atau yang terbaca masih frame hitam (surface baru
+        // dibuat ulang), coba lagi di frame berikutnya, bukan menyerah dan membiarkan
+        // klip tampil tajam tanpa blur. Frame hitam dipakai hanya bila semua percobaan
+        // gagal, supaya canvas yang memang gelap tetap mendapat blur.
+        var fallback: ImageBitmap? = null
+        var attempt = 0
+        while (attempt < PANEL_FRAME_GRAB_ATTEMPTS) {
+            val grabbed = fullFrameGrab.grab?.invoke() ?: canvasFrameGrab.grab?.invoke()
+            if (grabbed != null) {
+                if (!isLikelyBlackFrame(grabbed)) {
+                    canvasPanelFrame = grabbed
+                    return@LaunchedEffect
+                }
+                fallback = grabbed
+            }
+            attempt++
+            androidx.compose.runtime.withFrameNanos { }
         }
+        if (fallback != null) canvasPanelFrame = fallback
     }
     // Frame beku dibuang saat player diam tanpa panel, supaya buka panel/geser
     // antrean berikutnya tidak memakai frame basi dari sesi sebelumnya.
@@ -3076,6 +3096,7 @@ fun NowPlayingScreen(
                     rememberFullArtworkBlurImage(
                         imageUrl = null,
                         liveFrame = canvasPanelFrame,
+                        rejectBlackFrame = false,
                     )
                 }
                 // Spotify layar penuh, live blur off: alas panel HANYA blur frame beku

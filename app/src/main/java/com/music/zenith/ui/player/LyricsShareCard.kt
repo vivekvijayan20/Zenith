@@ -7,10 +7,8 @@ import android.graphics.Color
 import android.graphics.BlurMaskFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
-import android.graphics.RectF
 import android.graphics.Shader
 import com.motion.lyrics.HeadOut
 import com.motion.lyrics.MotionTuning

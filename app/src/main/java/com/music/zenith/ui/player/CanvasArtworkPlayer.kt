@@ -61,10 +61,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.music.zenith.data.Http
 import com.music.zenith.data.canvas.CanvasArtwork
 import com.music.zenith.data.canvas.CanvasCache
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.math.ceil

@@ -90,7 +90,6 @@ private const val PANEL_FILL_UNTIL_DARK = 0.2f
 /** What the panel is filled with where the liquid glass is off. */
 private val PanelFallbackFill = Color(0xFF151517)
 
-private val MINI_ART_SIZE = 30.4.dp
 private val MINI_ART_CORNER = 5.7.dp
 
 /** The pill's own radius, shrinking with the panel's progress — read at draw. */

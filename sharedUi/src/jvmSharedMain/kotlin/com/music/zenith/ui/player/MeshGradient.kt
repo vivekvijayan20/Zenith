@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.layout
 import coil3.compose.LocalPlatformContext
 import com.music.zenith.ui.graphics.FADE_CURVE_STOPS
 import com.music.zenith.ui.graphics.forPixelAccess
@@ -55,7 +56,6 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 private val FallbackColors = listOf(
     Color(0xFF3A1C71),
@@ -222,7 +222,8 @@ fun MeshGradientBackground(
                 scaleY = 1.3f
             }
             .background(baseColor)
-            .blur(blurRadius),
+            .renderedAtLowRes()
+            .blur(blurRadius / BACKDROP_RENDER_DIVISOR),
     ) {
         // Most populous colours first, so they sit low where the cover fades into
         // the backdrop; the minor ones hide behind the artwork at the top.
@@ -276,6 +277,34 @@ fun MeshGradientBackground(
 
 /** A blob's opacity at its centre. */
 private const val BLOB_ALPHA = 0.85f
+
+/**
+ * Backdrop mesh dan tepi cover digambar pada 1/N ukuran lalu diperbesar. Keduanya
+ * di-blur besar sehingga detail hilang, tetapi RenderEffect blur dijalankan ulang
+ * tiap layar digambar (frame video canvas, animasi minimize/expand). Piksel yang
+ * diproses turun menjadi 1/N^2 dengan tampilan yang nyaris sama.
+ */
+private const val BACKDROP_RENDER_DIVISOR = 4
+
+/** Mengukur anak pada 1/[BACKDROP_RENDER_DIVISOR] ukuran, lalu menskalakannya ke ukuran penuh. */
+private fun Modifier.renderedAtLowRes(): Modifier = layout { measurable, constraints ->
+    val width = constraints.maxWidth
+    val height = constraints.maxHeight
+    val smallWidth = (width / BACKDROP_RENDER_DIVISOR).coerceAtLeast(1)
+    val smallHeight = (height / BACKDROP_RENDER_DIVISOR).coerceAtLeast(1)
+    val placeable = measurable.measure(
+        androidx.compose.ui.unit.Constraints.fixed(smallWidth, smallHeight),
+    )
+    val sx = width.toFloat() / smallWidth
+    val sy = height.toFloat() / smallHeight
+    layout(width, height) {
+        placeable.placeWithLayer(0, 0) {
+            scaleX = sx
+            scaleY = sy
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+        }
+    }
+}
 
 /** Average of a stretch of seam colours, used as one blob's colour. */
 private fun List<Color>.seamBlobColor(): Color {
@@ -445,12 +474,14 @@ fun CoverEdgeBackdrop(
     Canvas(
         modifier = modifier
             .fillMaxSize()
+            .renderedAtLowRes()
             .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .blur(EDGE_BLUR_DP.dp),
+            .blur((EDGE_BLUR_DP / BACKDROP_RENDER_DIVISOR).dp),
     ) {
         val drawn = shown.value
         if (drawn.size < 2) return@Canvas
-        val seamY = seam().coerceIn(0f, size.height)
+        // Canvas ini digambar pada 1/BACKDROP_RENDER_DIVISOR ukuran layar.
+        val seamY = (seam() / BACKDROP_RENDER_DIVISOR).coerceIn(0f, size.height)
         if (seamY < 1f) return@Canvas
         val top = seamY * EDGE_RISE_START
         val bottom = (seamY + size.height * EDGE_DROP_SHARE).coerceAtMost(size.height)

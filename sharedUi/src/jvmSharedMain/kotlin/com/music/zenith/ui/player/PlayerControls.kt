@@ -17,7 +17,6 @@ import com.music.zenith.sharedui.resources.*
 import org.jetbrains.compose.resources.DrawableResource
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1208,39 +1207,6 @@ private fun rememberOutputGlyph(): OutputGlyph {
 
 /** An output glyph and the size that makes it match the others — see [PILL_OUTPUT_SIZE]. */
 private data class OutputGlyph(val icon: ImageVector, val size: Dp = PILL_OUTPUT_SIZE)
-
-/** Whether the sound leaves by anything other than the phone's own speaker: a cast, the watch, buds, a speaker, a wire. */
-@Composable
-private fun rememberOutputIsExternal(): Boolean {
-    val cast by PlayerPlatform.host.castState.collectAsStateWithLifecycle()
-    val watch by PlayerPlatform.host.watchOutput.collectAsStateWithLifecycle()
-    val active = rememberAudioOutputs().firstOrNull { it.isActive }
-    return cast.connectedName != null || watch.active ||
-        (active != null && active.kind != AudioOutputKind.PHONE)
-}
-
-/** Used when the player tint carries no sleeve colour to turn away from. */
-private val OutputAccentFallback = Color(0xFF30D158)
-
-/**
- * The connected-output colour: the hue directly opposite the sleeve's own,
- * saturated and mid-light, so it stands apart from the artwork behind it
- * whatever the cover looks like. Read off [tint], which already echoes the
- * sleeve; plain white (no sleeve colour) gets a fixed green instead.
- */
-private fun outputAccentFor(tint: Color): Color {
-    val high = maxOf(tint.red, tint.green, tint.blue)
-    val low = minOf(tint.red, tint.green, tint.blue)
-    val chroma = high - low
-    if (chroma < 0.03f) return OutputAccentFallback
-    var hue = when (high) {
-        tint.red -> 60f * (((tint.green - tint.blue) / chroma) % 6f)
-        tint.green -> 60f * ((tint.blue - tint.red) / chroma + 2f)
-        else -> 60f * ((tint.red - tint.green) / chroma + 4f)
-    }
-    if (hue < 0f) hue += 360f
-    return Color.hsl((hue + 180f) % 360f, 0.85f, 0.58f)
-}
 
 /**
  * One control inside a [Pill] — [BottomGlyph]'s twin, squared off.

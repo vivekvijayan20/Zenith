@@ -1,44 +1,61 @@
-## What's new
+## What's new in 16.0.0
 
-### Search
-- The Search tab has a large title and a bottom field that morphs out of the glass nav bar.
-- The source picker now lives in the field's globe, with app icons and a check on the selected source.
-- Suggestions are anchored above the floating field, nearest match closest to your thumb.
-- The filter header is frosted and rounded, and the profile button folds away.
-- The mini player stays visible in search, glides between inline and expanded density, and hides while the keyboard is open.
-- Larger Apple Music style section titles and more vibrant mood cards.
+### Lyrics
+- Share lyrics as an animated video that stays in sync with the song.
+- The lyrics share card is flatter, has an optional logo, and follows your selected LiquidFlow lyric effect.
+- YouTube Music timed lyrics are now available through the Android Music client.
+- Local offline tracks read embedded and sidecar LRC, eLRC and TTML lyrics.
+- Lyric translation now handles right-to-left languages such as Arabic.
+- LiquidFlow splits lyrics by grapheme cluster, so Indic scripts no longer overlap, and unsung letters stay unlit until their line begins.
 
-### Glass and animation
-- Apple Music style jelly press effect on glass buttons, search fields, pills, back buttons and lyrics glass buttons.
-- The Add Songs to Queue popup gets a macOS style window morph, jelly pop-in and pop-out, and a finger-following touch glow.
-- The profile account popup has a smoother jelly pop-in and exit.
-- The glass nav indicator lifts on press, grows and shrinks fluidly, and can be dragged onto the standalone Search tab.
+### Canvas
+- Community Canvas now runs on the new Zenith Canvas service. Upload your own looping motion covers, like other listeners' work, and manage your uploads in one place.
+- Canvas providers can be reordered to set your preferred priority.
+- The Apple Music canvas bottom fade follows a curved profile, similar to Apple Music, with a softer tail.
+- Transitions into and out of lyrics and the queue are smoother, with continuous blur, no tearing line, and the clip kept in place.
+- The Spotify canvas cover fades in place and blends into the clip's own blurred frame.
+- Canvas playback pauses while the player docks, and the paused frame is carried into the lyrics and queue headers.
 
-### Home
-- Your daily discover is now a large zooming card carousel with a slow looping cover zoom and an artwork-tinted top gradient.
-- A local Quick picks shelf is built when the home feed has none, and Quick picks is always shown on Home.
-- Mood cards use softer colors.
+### Discover
+- New releases and Charts pages, with shortcut cards on the New tab.
+- Search category cards are shuffled once per app launch.
+- Explore shortcut cards are now clearly visible in the light theme.
 
-### Player
-- A thin rim light tinted from the artwork's own corners surrounds the player cover.
-- Lossless and Hi-Res badges are shown in a rounded chip.
-- Darker, more vivid artwork mesh colors that match Apple Music.
-- The live canvas blur is now real-time with adaptive capture.
-- New Apple Music style translate icon on the lyrics translation button.
+### Library and albums
+- Liked songs can be kept downloaded.
+- Album headers show an Apple Hi-Res Lossless badge, and the quality label includes a lossless icon.
+- High-resolution YouTube covers, a smoother player cover hold-over, and per-track covers for local files.
+- Album pages tint from the dominant hue when the edge colour averages to grey.
 
-### Albums
-- Popular tracks are marked with a small dot, like Apple Music.
+### Player and queue
+- Long-press a queue row to open its track menu.
+- The queue swipe action has a new iOS-style design.
+- The play/pause button responds to taps immediately and morphs faster, and its loading animation now runs as a sheen on the seek bar.
+- Control icons are thinner, and the AirPlay triangle has a wider base.
+- Mesh backdrops are softer for white covers and blend the cover's seam colours, ignoring letterbox bars.
+- Video tracks with still covers keep a square mini player cover and can use full-bleed artwork.
 
-### Updates
-- The app now forces an update once a release is two days old.
+### Glass interface
+- The glass nav bar and player are shorter, with more realistic edge refraction, and the nav bar size can be adjusted manually.
+- The glass tab indicator has a liquid rubber-band stretch at the pill ends and stays confined within the pill.
+- Tapping the active tab scrolls smoothly to the top.
+- The search field expands to full width while the keyboard is open, and the Home circle fades out.
+- Panel mini rows now match the glass nav bar player.
+
+### App icon and splash
+- New Dark Glass launcher icon option.
+- The splash screen uses an Apple Music style gradient with the dark glass Z logo, drawn from the first frame.
+
+### Performance
+- Minimizing and expanding the player is much smoother on songs with a canvas when the legacy mesh backdrop is enabled.
+- Incoming AutoMix artwork, backdrop and canvas are prefetched, and the skip crossfade arms faster, so the next button responds quicker.
+- Track analysis runs at background priority unless performance mode is on.
+- Canvas stills are allocated off the main thread.
+- Mid-track quality upgrades are skipped during the last 45 seconds of a track.
 
 ### Fixes and polish
-- Fixed a crash when opening the lyrics globe menu while Canvas is playing, and restored its frosted blur.
-- Quick picks no longer reuses Listen again tracks.
-- Remembered high quality is kept per track when the quality setting is lowered.
-- Fixed quality badge text clipping.
-- Pinned playlist placeholders are shown while the library loads.
-- Fixed the first-frame jump when entering Search, the nav bar shape after the search morph closes, and the mini player height during the morph.
-- Search suggestions and the source menu look right with liquid glass turned off.
-- Faster search morph with synced mini player springs.
-- Removed unused string resources, dead native headers and stray files.
+- Fixed playlist playback order, notification transport slots, and Latin accent matching in lyrics.
+- Fixed the queue not scrolling the last track fully into view, and neighbouring rows reappearing after a swipe removal.
+- Fixed the mini player jump when the search field collapses.
+- Fixed the Play and Shuffle labels clipping in the release header.
+- Removed dead code and unused imports.

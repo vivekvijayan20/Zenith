@@ -108,7 +108,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -140,10 +139,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.music.zenith.ui.components.optimizedHazeEffect
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.zenith.playback.PlaybackPosition
 import com.music.zenith.sharedui.resources.*
@@ -1598,15 +1594,6 @@ internal fun Modifier.lyricsGlassDisc(
         animationSpec = tween(durationMillis = 220),
         label = "lyricGlassActive",
     )
-    val hazeStyle = remember(active) {
-        HazeStyle(
-            backgroundColor = Color(0xFF1C1C1E),
-            tints = listOf(HazeTint(Color.White.copy(alpha = if (active) 0.20f else 0.10f))),
-            blurRadius = 12.dp,
-            noiseFactor = 0f,
-            fallbackTint = HazeTint(Color.White.copy(alpha = 0.22f)),
-        )
-    }
     // Liquid Glass app (sama dengan tombol back melayang) bila tersedia;
     // null berarti kaca mati / Reduce dynamic blur, jadi disc Haze di bawah dipakai.
     val appGlass = LocalLyricsGlassDisc.current?.invoke(active)

@@ -1,10 +1,8 @@
 package com.music.zenith.ui.components
 
-import androidx.compose.material.icons.rounded.Check
 import com.music.zenith.ui.icons.ZenithIcons
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import com.music.zenith.ui.player.LocalLyricsMenuPopover
 import com.music.zenith.ui.player.LyricsMenuEntry
 
 import androidx.compose.animation.core.animateFloatAsState
@@ -16,7 +14,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding

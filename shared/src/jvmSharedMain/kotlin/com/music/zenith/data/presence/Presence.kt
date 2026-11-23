@@ -69,15 +69,6 @@ class Presence(
         open.value = isOpen
     }
 
-    /**
-     * For process exit, where nothing launched would get to run: sends the close
-     * on the calling thread, giving up after two seconds.
-     */
-    fun closeBlocking() {
-        open.value = false
-        if (announced) send(open = false, timeoutSec = 2)
-    }
-
     private fun nextDelayMs(): Long {
         val base = intervalSec.coerceIn(MIN_INTERVAL_SEC, MAX_INTERVAL_SEC) * 1000L
         // ±10%, so a release that starts thousands of apps at once spreads out.
