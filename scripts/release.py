@@ -72,6 +72,7 @@ def read_version(gradle):
 def inline(text):
     text = esc(text)
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"__(.+?)__", r"<i>\1</i>", text)
     text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
     return text
 

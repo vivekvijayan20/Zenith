@@ -235,7 +235,10 @@ private fun ReorderableProviderList(
                                         onDragCancel = {
                                             dragged = null
                                             totalDrag = 0f
-                                            liveOrder = order
+                                            // The menu touch host swallows the release of a drag, which
+                                            // Compose reports as a cancel. Commit what is on screen
+                                            // instead of reverting it.
+                                            onReorder(liveOrder)
                                         },
                                     )
                                 }
