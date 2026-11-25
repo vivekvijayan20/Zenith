@@ -51,6 +51,12 @@
     <string name="drag_to_reorder">Drag to reorder</string>
     <string name="failed">Failed</string>
     <string name="hi_res_lossless">Hi-Res Lossless</string>
+    <string name="quality_info_details">Audio quality details</string>
+    <string name="quality_info_source">Source</string>
+    <string name="quality_info_bitrate">Bitrate</string>
+    <string name="quality_info_codec">Codec</string>
+    <string name="quality_info_resolution">Resolution</string>
+    <string name="quality_info_channels">Channels</string>
     <string name="high_quality">High quality</string>
     <string name="increase_lyrics_offset">Increase lyrics offset</string>
     <string name="instrumental">Instrumental</string>

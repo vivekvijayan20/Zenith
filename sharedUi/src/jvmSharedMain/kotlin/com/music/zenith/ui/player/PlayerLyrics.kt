@@ -544,8 +544,8 @@ private fun scrollLead(lines: List<LyricLine>, positionMs: Long): Long {
  */
 private val CONTROLS_SCROLL_SLOP = 20.dp
 
-private const val LYRICS_UNAVAILABLE_HOLD_MS = 5_000L
-private const val LYRICS_UNAVAILABLE_FADE_MS = 900
+internal const val LYRICS_UNAVAILABLE_HOLD_MS = 5_000L
+internal const val LYRICS_UNAVAILABLE_FADE_MS = 900
 internal sealed interface LyricsTranslationUiState {
     data object Idle : LyricsTranslationUiState
     data object Loading : LyricsTranslationUiState

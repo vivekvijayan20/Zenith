@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -154,6 +155,9 @@ import com.music.zenith.ui.AddonBlockedAlert
 import com.music.zenith.data.settings.LibrarySort
 import com.music.zenith.data.settings.ThemeMode
 import com.music.zenith.ui.components.AccountProfileSelector
+import com.music.zenith.ui.components.ChartCountryDropdown
+import com.music.zenith.ui.components.ChartCountryButton
+import com.music.zenith.ui.components.ChartCountryMenu
 import com.music.zenith.ui.components.JellyMenuBody
 import com.music.zenith.ui.components.iosMenuJelly
 import com.music.zenith.ui.components.jellyMenuRow
@@ -427,7 +431,17 @@ internal fun inPageOrder(shown: List<String>, page: List<String>): Boolean {
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The default style leaves a translucent scrim behind the three-button
+        // bar; transparent on both themes lets the page show through to the edge.
+        enableEdgeToEdge(
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            window.isNavigationBarContrastEnforced = false
+        }
         // Before the composition, so a cold launch from a widget's artwork has
         // the request already standing by the time ZenithApp first reads it.
         PlayerDeepLink.consume(intent)
@@ -1009,6 +1023,7 @@ private fun ZenithApp(
     // Menu sumber (YouTube / Library / Addons) yang diminta globe di bar pencarian.
     // Digambar di root, di luar Column bar, supaya tidak memakan layout bar.
     var searchSourceMenu by remember { mutableStateOf<SourceMenuRequest?>(null) }
+    // Dropdown negara Charts memegang state buka/tutupnya sendiri di dalam ChartsPage.
     // Whether the field opened out of the collapsed (inline) nav bar, and how far
     // the bar has opened: the mini player rises and widens on that same spring.
     var searchFromInline by remember { mutableStateOf(false) }
@@ -1519,6 +1534,8 @@ private fun ZenithApp(
     val moodsGridState = rememberLazyGridState()
     val newReleasesListState = rememberLazyListState()
     val chartsListState = rememberLazyListState()
+    var chartCountryMenuOpen by remember { mutableStateOf(false) }
+
     val searchListState = rememberLazyListState()
     val currentListState = when (selectedTab) {
         TAB_HOME -> homeListState
@@ -1629,7 +1646,7 @@ private fun ZenithApp(
                 available: androidx.compose.ui.geometry.Offset,
                 source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
             ): androidx.compose.ui.geometry.Offset {
-                if (consumed.y != 0f) {
+                if (consumed.y != 0f && !chartCountryMenuOpen) {
                     val next = (pageScroll.floatValue - consumed.y).coerceAtLeast(0f)
                     pageScroll.floatValue = next
                     pageScrollByKey[pageScrollHolder.key] = next
@@ -3436,6 +3453,25 @@ private fun ZenithApp(
                                 onLoad = { viewModel.loadCharts() },
                                 onRetry = { viewModel.loadCharts(force = true) },
                                 onCountryChange = { viewModel.loadCharts(it) },
+                                countryDropdown = { expanded, onExpandedChange, onPick ->
+                                    LaunchedEffect(expanded) {
+                                        chartCountryMenuOpen = expanded
+                                        navBarScroll.frozen = expanded
+                                    }
+                                    androidx.compose.runtime.DisposableEffect(Unit) {
+                                        onDispose {
+                                            chartCountryMenuOpen = false
+                                            navBarScroll.frozen = false
+                                        }
+                                    }
+                                    ChartCountryDropdown(
+                                        selected = chartsCountry,
+                                        expanded = expanded,
+                                        onExpandedChange = onExpandedChange,
+                                        onPick = onPick,
+                                        backdrop = pageBackdrop,
+                                    )
+                                },
                                 onShelfItemClick = onExploreShelfClick,
                                 onShelfItemLongPress = onShelfLongPress,
                                 currentSong = player.song,
@@ -3494,10 +3530,14 @@ private fun ZenithApp(
                                 contentPadding = listPadding,
                             )
                         } else if (pageRoute == AppRoute.AccountScrobbling) {
+                            // Brand profiles are only known once the channel list has been
+                            // fetched, so fetch it on arrival rather than on the first tap.
+                            LaunchedEffect(signedIn) { if (signedIn) viewModel.loadChannels() }
                             AccountAndScrobblingScreen(
                                 signedIn = signedIn,
                                 account = account,
                                 channelName = selectedChannelName,
+                                canSwitchProfile = googleAccounts.sumOf { it.profiles.size } > 1,
                                 onSignIn = {
                                     navigator.clear()
                                     webSession = WebSessionMode.SIGN_IN
@@ -3972,7 +4012,7 @@ private fun ZenithApp(
                                 refreshing = MainViewModel.Feed.EXPLORE in refreshing,
                                 onNewReleases = { navigator.push(AppRoute.NewReleases) },
                                 onCharts = { navigator.push(AppRoute.Charts) },
-                                onMoods = { selectedTab = TAB_SEARCH },
+                                onMoods = { navigator.push(AppRoute.Moods) },
                                 onRefresh = { viewModel.refresh(MainViewModel.Feed.EXPLORE) },
                                 pullState = explorePull,
                                 contentPadding = listPadding,
@@ -4403,12 +4443,20 @@ private fun ZenithApp(
                             .graphicsLayer { alpha = topFadeAlpha },
                     )
                 } else {
+                    // The search filter control lives in the page, under this app-level
+                    // strip, so the strip blurred it. While the control is up the page
+                    // frosts its own header band, so the strip steps aside.
+                    val topFadeBlurHide by animateFloatAsState(
+                        targetValue = if (searchFilterBarShown) 0f else 1f,
+                        animationSpec = tween(durationMillis = 220),
+                        label = "topFadeBlurSearchFilter",
+                    )
                     TopFadeBlur(
                         hazeState = hazeState,
                         pageColor = chromePageColor,
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .graphicsLayer { alpha = topFadeAlpha },
+                            .graphicsLayer { alpha = topFadeAlpha * topFadeBlurHide },
                     )
                 }
 
@@ -4467,6 +4515,9 @@ private fun ZenithApp(
                             AppRoute.EqualizerPresets -> stringResource(R.string.equalizer_preset)
                             AppRoute.ListenTogether -> stringResource(R.string.listen_together)
                             AppRoute.Sources -> stringResource(R.string.source)
+                            AppRoute.Charts -> "Chart"
+                            AppRoute.Moods -> stringResource(R.string.find_your_mood)
+                            AppRoute.NewReleases -> stringResource(R.string.shelf_new_releases)
                             else -> null
                         }
                     } else null,
@@ -5199,6 +5250,7 @@ private fun ZenithApp(
                 (songActions != null && songMenuOrigin == null && !((menuFromPlayer || menuFromQueue) && playerRaised)) ||
                     (browseActions != null && browseMenuOrigin == null && !browseRenameInSheet) ||
                     songInfoTarget != null ||
+                    chartCountryMenuOpen ||
                     searchSourceMenu != null
             LaunchedEffect(pageMenuUp, reduceDynamicBlur) {
                 if (pageMenuUp && !reduceDynamicBlur && isGlassSupported()) {
@@ -6735,6 +6787,10 @@ private fun ZenithApp(
                 onOpenSettings = {
                     showAccountSelector = false
                     navigator.push(AppRoute.Settings)
+                },
+                onOpenEqualizer = {
+                    showAccountSelector = false
+                    navigator.push(AppRoute.Equalizer)
                 },
                 onDismiss = { showAccountSelector = false },
                 onClosing = { accountSelectorLeaving = true },

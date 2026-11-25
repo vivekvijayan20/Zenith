@@ -464,6 +464,9 @@ class FloatingTabBarScrollConnection(
 
     private var accumulatedScroll = 0f
 
+    /** Dibekukan sementara: scroll dari popup/dropdown di atas halaman tidak boleh melipat bar. */
+    var frozen = false
+
     fun expand() {
         isInline = false
         accumulatedScroll = 0f
@@ -475,6 +478,7 @@ class FloatingTabBarScrollConnection(
     }
 
     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+        if (frozen) return Offset.Zero
         // If behavior is Never, don't change state
         if (inlineBehavior == FloatingTabBarInlineBehavior.Never) {
             return Offset.Zero
@@ -526,6 +530,7 @@ class FloatingTabBarScrollConnection(
     }
 
     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+        if (frozen) return Offset.Zero
         // Scrolling up with nothing left to scroll: the page has reached its top.
         if (expandOnlyAtTop &&
             inlineBehavior == FloatingTabBarInlineBehavior.OnScrollDown &&

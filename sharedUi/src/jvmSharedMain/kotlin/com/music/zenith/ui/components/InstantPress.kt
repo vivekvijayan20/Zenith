@@ -25,6 +25,11 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick as semanticsOnClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 
 /**
  * A clickable card whose touch effect shows the moment a finger lands.
@@ -46,7 +51,11 @@ fun Modifier.instantPressClickable(
     onClick: () -> Unit,
     enabled: Boolean = true,
     pressedScale: Float = INSTANT_PRESS_SCALE,
+    // Keeps a tap that drifted a little (a finger on a phone does) instead of letting a
+    // scrolling parent cancel it; the click then fires on release inside the card.
+    forgiving: Boolean = false,
 ): Modifier {
+    val latestOnClick by rememberUpdatedState(onClick)
     val pressSource = remember { MutableInteractionSource() }
     val clickSource = remember { MutableInteractionSource() }
     val indication = LocalIndication.current
@@ -71,31 +80,40 @@ fun Modifier.instantPressClickable(
                 scale(factor, factor) { this@drawWithContent.drawContent() }
             }
         }
-        .pointerInput(enabled) {
+        .pointerInput(enabled, forgiving) {
             if (!enabled) return@pointerInput
+            val tapSlop = viewConfiguration.touchSlop * 2.5f
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val press = PressInteraction.Press(down.position)
                 pressSource.tryEmit(press)
                 var released = false
+                var tapped = false
                 try {
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Final)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) {
                             released = true
+                            val up = change.position
+                            tapped = up.x >= 0f && up.y >= 0f && up.x <= size.width && up.y <= size.height
                             break
                         }
+                        val drift = (change.position - down.position).getDistance()
                         // A scroll took the gesture: only a move can be one.
-                        if (change.positionChange() != Offset.Zero && change.isConsumed) break
+                        if (change.positionChange() != Offset.Zero && change.isConsumed &&
+                            (!forgiving || drift > tapSlop)
+                        ) break
                         val p = change.position
                         if (p.x < 0f || p.y < 0f || p.x > size.width || p.y > size.height) break
+                        if (forgiving && drift > tapSlop) break
                     }
                 } finally {
                     pressSource.tryEmit(
                         if (released) PressInteraction.Release(press) else PressInteraction.Cancel(press),
                     )
                 }
+                if (forgiving && tapped) latestOnClick()
             }
         }
         .clip(shape)
@@ -105,11 +123,23 @@ fun Modifier.instantPressClickable(
             if (dim > 0f) drawRect(Color.Black.copy(alpha = INSTANT_PRESS_DIM * dim))
         }
         .indication(pressSource, indication)
-        .clickable(
-            interactionSource = clickSource,
-            indication = null,
-            enabled = enabled,
-            onClick = onClick,
+        .then(
+            if (forgiving) {
+                Modifier.semantics(mergeDescendants = true) {
+                    role = Role.Button
+                    semanticsOnClick {
+                        if (enabled) latestOnClick()
+                        true
+                    }
+                }
+            } else {
+                Modifier.clickable(
+                    interactionSource = clickSource,
+                    indication = null,
+                    enabled = enabled,
+                    onClick = onClick,
+                )
+            },
         )
 }
 

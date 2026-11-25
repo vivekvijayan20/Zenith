@@ -1574,6 +1574,16 @@ class PlaybackService : MediaLibraryService() {
                     .setHttpRequestHeaders(serving.headers)
                     .build()
             }
+            // The entry already holds JioSaavn's own bytes, from a play nothing
+            // in this process remembers (a restart, or an expired
+            // [StreamChoice]). Finished by the same URL, never by a new race.
+            AudioCache.keptJioSaavnUrl(dataSpec.key ?: AudioCache.cacheKeyOf(dataSpec.uri))?.let { kept ->
+                NerdStats.recordSource(videoId, "JioSaavn")
+                StreamChoice.remember(videoId, SourceStream(kept), substituted = true)
+                return@Resolver dataSpec.buildUpon()
+                    .setUri(Uri.parse(kept))
+                    .build()
+            }
             // A track queued from YouTube may be held by a source the user
             // ranked above it — see [SourceResolver.substituteForYouTube] and
             // [raceYouTubeOrModule]. Only worth the extra lookup when
@@ -3676,6 +3686,7 @@ class PlaybackService : MediaLibraryService() {
         // kind the Cached songs folder lists. See [AudioCache.Origin].
         mediaItem?.let { AudioCache.notePlayed(it.toSong(), it.localConfiguration?.uri) }
         scheduleForeignCachePurge()
+        fillAddonCopy(mediaItem?.localConfiguration?.uri?.toString())
         mediaItem?.mediaId?.let { id ->
             resolveLocalBitrate(id, mediaItem)
         }
@@ -5036,6 +5047,7 @@ class PlaybackService : MediaLibraryService() {
             player.prepare()
             fadeInAfterSwap(player, priorVolume)
             QualityUpgrade.unshelve(mediaId)
+            fillAddonCopy(landing.uri)
             TrackLog.d("Zenith", "upgraded to ${stream.format.summary} at ${landing.position}ms ($upgradedSourceName)")
             watchUpgrade(mediaId, landing.uri, landing.position, landing.duration, previousFormat)
             if (QualityUpgrade.continueAfterLossySwap(mediaId)) {
@@ -6381,6 +6393,18 @@ class PlaybackService : MediaLibraryService() {
         )
         MediaWidgetSnapshot.save(this, snapshot)
         MediaWidget.refresh(this)
+    }
+
+    private var addonFillJob: Job? = null
+
+    private fun fillAddonCopy(uriString: String?) {
+        addonFillJob?.cancel()
+        val uri = uriString?.let(Uri::parse) ?: return
+        addonFillJob = scope.launch {
+            delay(ADDON_FILL_DELAY_MS)
+            if (AudioCache.originOf(uri) != AudioCache.Origin.OTHER) return@launch
+            AudioCache.fillWhole(uri)
+        }
     }
 
     private var foreignCachePurgeJob: Job? = null
@@ -9570,6 +9594,7 @@ class PlaybackService : MediaLibraryService() {
         const val MEDIA_LIKED_ID = "liked"
         /** See [scheduleForeignCachePurge]: comfortably past the longest crossfade. */
         const val FOREIGN_CACHE_PURGE_DELAY_MS = 30_000L
+        const val ADDON_FILL_DELAY_MS = 6_000L
         /** How many upcoming tracks [scheduleForeignCachePurge] leaves alone for read-ahead and Automix. */
         const val FOREIGN_CACHE_KEEP_AHEAD = 3
         const val MEDIA_DOWNLOADS_ID = "downloads"

@@ -45,8 +45,8 @@
   </tr>
   <tr>
     <td align="center" width="33%"><img src=".github/assets/screenshots/screenshot-4.jpg" alt="Liked Music" width="100%" /><br/><sub><b>Liked Music</b></sub></td>
-    <td align="center" width="33%"><img src=".github/assets/screenshots/screenshot-5.jpg" alt="Player" width="100%" /><br/><sub><b>Player</b></sub></td>
-    <td align="center" width="33%"></td>
+    <td align="center" width="33%"><img src=".github/assets/screenshots/18.jpg" alt="Player" width="100%" /><br/><sub><b>Player</b></sub></td>
+    <td align="center" width="33%"><img src=".github/assets/screenshots/17.jpg" alt="Album" width="100%" /><br/><sub><b>Album</b></sub></td>
   </tr>
 </table>
 </div>
@@ -159,6 +159,22 @@ Join the discussion, share feedback or ask for help on [r/ZenithMusic](https://w
 Zenith is built on top of [BitChord](https://github.com/kushagrasinghx/BitChord) by [kushagrasinghx](https://github.com/kushagrasinghx) and its contributors. Thank you for the foundation.
 
 - **LiquidFlow** lyric effect: inspired by [Mochy Music](https://github.com/realidkroo/Mochy-Music) by [realidkroo](https://github.com/realidkroo).
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=rezapranata089-bit%2FZenith&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=rezapranata089-bit/Zenith&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=rezapranata089-bit/Zenith&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=rezapranata089-bit/Zenith&type=date&legend=top-left" />
+ </picture>
+</a>
+
+<div align="center">
+  <sub>Star the repo if you like Zenith, thank you!</sub>
+</div>
 
 ---
 

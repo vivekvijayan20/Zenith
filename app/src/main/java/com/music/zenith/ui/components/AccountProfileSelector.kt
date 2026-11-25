@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.delay
+import androidx.compose.ui.layout.onGloballyPositioned
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,6 +33,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.CircleShape
+import com.music.zenith.data.settings.ThemeMode
 import com.music.zenith.ui.icons.SfIcons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,6 +72,16 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
 
+/** Where the profile button was last tapped, in window pixels; read once by the account card. */
+internal object AccountPopupAnchor {
+    @Volatile
+    var center: androidx.compose.ui.geometry.Offset? = null
+
+    /** Window y where the card's top edge should sit; null keeps the top-bar default. */
+    @Volatile
+    var top: Float? = null
+}
+
 /** Shared compact selector for every visible YouTube account avatar. */
 @OptIn(ExperimentalHazeMaterialsApi::class)
 @Composable
@@ -78,15 +94,32 @@ fun AccountProfileSelector(
     onAddAccount: () -> Unit,
     onRemoveAccount: (GoogleAccountSession) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenEqualizer: () -> Unit,
     onDismiss: () -> Unit,
     /** Called the moment the exit starts, so what the card covered can come back with it. */
     onClosing: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var managing by remember { mutableStateOf(false) }
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val reduceMotion by AppSettings.reduceAnimation.collectAsStateWithLifecycle()
     val profileOverride by AppSettings.profileOverride.collectAsStateWithLifecycle()
+    // Switching list is only useful when there is more than one profile to pick from.
+    val hasOtherProfiles = accounts.sumOf { it.profiles.size } > 1
+    val activeProfile = accounts.firstOrNull { it.accountId == activeAccountId }?.let { acc ->
+        acc.profiles.firstOrNull { it.profileId == activeProfileId }?.let { raw ->
+            if (profileOverride.owner == AppSettings.profileOwnerOf(acc.email)) {
+                val photo = profileOverride.photoPath
+                    .takeIf { it.isNotEmpty() && java.io.File(it).exists() }
+                    ?.let { "file://$it" }
+                raw.copy(
+                    name = profileOverride.name.ifBlank { raw.name },
+                    avatar = photo ?: raw.avatar,
+                )
+            } else {
+                raw
+            }
+        }
+    }
     val touch = rememberIosMenuTouch(reduceMotion)
     val shape = RoundedCornerShape(22.dp)
     val surface = MaterialTheme.colorScheme.surface
@@ -110,11 +143,21 @@ fun AccountProfileSelector(
 
     // pop: the card's scale, which may overshoot — that is the bounce.
     // fade: its alpha and the scrim's. reveal: the avatars' own, a beat behind.
-    val pop = remember { Animatable(if (reduceMotion) 1f else 0.3f) }
+    val pop = remember { Animatable(if (reduceMotion) 1f else 0.12f) }
     val fade = remember { Animatable(0f) }
     val reveal = remember { Animatable(0f) }
+    // The card's own alpha on the way out: it stays solid while folding into the
+    // button and fades only in the last beat, so it never vanishes half-shrunk.
+    val cardFade = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
     var closing by remember { mutableStateOf(false) }
+    // Where the profile button sits, so the card grows out of it and folds back into it.
+    val anchor = remember { AccountPopupAnchor.center.also { AccountPopupAnchor.center = null } }
+    val anchorTop = remember { AccountPopupAnchor.top.also { AccountPopupAnchor.top = null } }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val topPad = anchorTop?.let { with(density) { it.toDp() } }?.coerceAtMost(360.dp) ?: 56.dp
+    var cardOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var cardSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
 
     LaunchedEffect(Unit) {
         if (reduceMotion) {
@@ -140,10 +183,11 @@ fun AccountProfileSelector(
                 if (reduceMotion) {
                     fade.animateTo(0f, tween(110))
                 } else {
-                    launch { reveal.animateTo(0f, tween(130, easing = FastOutLinearInEasing)) }
-                    launch { fade.animateTo(0f, tween(200, delayMillis = 30, easing = FastOutLinearInEasing)) }
-                    // Folds back toward the profile button in one continuous motion.
-                    pop.animateTo(0.6f, tween(220, easing = FastOutSlowInEasing))
+                    launch { reveal.animateTo(0f, tween(110, easing = FastOutLinearInEasing)) }
+                    launch { fade.animateTo(0f, tween(220, easing = FastOutLinearInEasing)) }
+                    launch { cardFade.animateTo(0f, tween(70, delayMillis = 210, easing = FastOutLinearInEasing)) }
+                    // Folds all the way down to the profile button's size in one continuous motion.
+                    pop.animateTo(0.12f, tween(280, easing = FastOutSlowInEasing))
                 }
                 after()
             }
@@ -165,17 +209,33 @@ fun AccountProfileSelector(
             contentColor = MaterialTheme.colorScheme.onSurface,
             shape = shape,
             modifier = Modifier
-                .padding(top = 56.dp, start = 20.dp, end = 12.dp)
-                .widthIn(max = 276.dp)
+                .padding(top = topPad, start = 20.dp, end = 12.dp)
+                .widthIn(max = 236.dp)
                 .fillMaxWidth()
+                .onGloballyPositioned {
+                    cardOrigin = it.localToWindow(androidx.compose.ui.geometry.Offset.Zero)
+                    cardSize = androidx.compose.ui.geometry.Size(
+                        it.size.width.toFloat(),
+                        it.size.height.toFloat(),
+                    )
+                }
                 .graphicsLayer {
                     val s = if (reduceMotion) 1f else pop.value.coerceAtLeast(0f)
                     scaleX = s
                     scaleY = s
-                    alpha = fade.value.coerceIn(0f, 1f)
-                    // Grows out of the corner under the profile button.
-                    transformOrigin = TransformOrigin(0.92f, 0f)
-                    if (!reduceMotion) applyIosMenuJelly(touch, s, 0.92f, 0f)
+                    // Held back until the card is measured, so its pivot is the tapped
+                    // button from the first frame instead of jumping into place.
+                    val measured = if (cardSize.width > 0f) 1f else 0f
+                    alpha = (if (closing && !reduceMotion) cardFade.value else fade.value).coerceIn(0f, 1f) * measured
+                    // Grows out of, and folds back into, the profile button itself.
+                    val ox = if (anchor != null && cardSize.width > 0f) {
+                        (anchor.x - cardOrigin.x) / cardSize.width
+                    } else 0.92f
+                    val oy = if (anchor != null && cardSize.height > 0f) {
+                        (anchor.y - cardOrigin.y) / cardSize.height
+                    } else 0f
+                    transformOrigin = TransformOrigin(ox, oy)
+                    if (!reduceMotion) applyIosMenuJelly(touch, s, ox, oy)
                 }
                 .clip(shape)
                 .then(
@@ -203,12 +263,22 @@ fun AccountProfileSelector(
             IosMenuScrollEnvironment(touch) {
             LazyColumn(
                 modifier = Modifier.heightIn(max = 440.dp).iosMenuTouchHost(touch, iosMenuColors().pressed),
-                contentPadding = PaddingValues(bottom = 8.dp),
+                contentPadding = PaddingValues(bottom = 6.dp),
             ) {
-                item { Text(stringResource(R.string.switch_account), style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(18.dp, 14.dp, 18.dp, 4.dp)) }
-                accounts.forEach { account ->
+                item {
+                    ActiveProfileHeader(
+                        profile = activeProfile,
+                        reveal = { reveal.value },
+                    )
+                }
+                item {
+                    Box(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+                            .height(0.5.dp)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)),
+                    )
+                }
+                if (hasOtherProfiles) accounts.forEach { account ->
                 item {
                     Text(account.email.ifBlank { account.name.ifBlank { stringResource(R.string.accounts) } },
                         style = MaterialTheme.typography.labelMedium,
@@ -233,7 +303,7 @@ fun AccountProfileSelector(
                     ProfileRow(
                         profile = profile,
                         selected = selected,
-                        managing = managing,
+                        managing = false,
                         reveal = { reveal.value },
                         onClick = { onSelect(account, profile); close(onDismiss) },
                         onRemove = { close { onRemoveAccount(account) } },
@@ -241,8 +311,14 @@ fun AccountProfileSelector(
                 }
                 }
                 item { SelectorAction(SfIcons.AddAccount, stringResource(R.string.add_account), onClick = { close(onAddAccount) }) }
-                // A wide glyph — two people and a gear — drawn a size up to match the others.
-                item { SelectorAction(SfIcons.ManageAccounts, stringResource(R.string.manage_accounts), iconSize = 26.dp) { managing = !managing } }
+                item {
+                    SelectorAction(
+                        if (dark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
+                        stringResource(if (dark) R.string.light else R.string.dark),
+                        onClick = { AppSettings.setThemeMode(if (dark) ThemeMode.LIGHT else ThemeMode.DARK) },
+                    )
+                }
+                item { SelectorAction(SfIcons.Tune, stringResource(R.string.equalizer), onClick = { close(onOpenEqualizer) }) }
                 item { SelectorAction(SfIcons.Settings, stringResource(R.string.settings), onClick = { close(onOpenSettings) }) }
             }
             }
@@ -282,15 +358,58 @@ fun AccountProfileSelector(
 @Composable private fun SelectorAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    iconSize: Dp = 22.dp,
+    iconSize: Dp = 20.dp,
     onClick: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp)
         .jellyMenuRow(onClick = onClick)
-        .heightIn(min = 44.dp)
-        .semantics { contentDescription = label }.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        // In the avatars' column, so the labels line up with the names above.
-        Box(Modifier.width(32.dp), contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(iconSize)) }
-        Spacer(Modifier.width(12.dp)); Text(label, style = MaterialTheme.typography.bodyLarge)
+        .heightIn(min = 40.dp)
+        .semantics { contentDescription = label }.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Apple-style: the label leads, the glyph trails.
+        Text(label, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.width(12.dp))
+        Icon(icon, null, Modifier.size(iconSize))
+    }
+}
+
+/** The active profile, centered: big avatar, name under it, handle under that. Tap to fold the account list open. */
+@Composable private fun ActiveProfileHeader(
+    profile: YouTubeProfile?,
+    reveal: () -> Float,
+) {
+    val revealFx = Modifier.graphicsLayer {
+        val r = reveal()
+        val s = r.coerceAtLeast(0f)
+        scaleX = s
+        scaleY = s
+        alpha = r.coerceIn(0f, 1f)
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (profile?.avatar != null) {
+            AsyncImage(profile.avatar, null, Modifier.size(44.dp).then(revealFx).clip(CircleShape))
+        } else {
+            Icon(SfIcons.AccountPlaceholder, null, Modifier.size(44.dp).then(revealFx), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                profile?.name.orEmpty(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleSmall,
+            )
+            if (profile != null) {
+                Text(
+                    profile.handle.ifBlank { stringResource(if (profile.isBrandAccount) R.string.brand_account else R.string.personal) },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }

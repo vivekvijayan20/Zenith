@@ -257,20 +257,20 @@ enum class GlassPreset(
         ),
         darkCustom = GlassCustom(
             blur = 0.66f,
-            saturation = 1f,
-            tint = 1.67f,
+            saturation = 2.2f,
+            tint = 2.3f,
             refraction = 0.99f,
             refractionWidth = 0.36f,
             depth = true,
             rainbow = 0f,
-            rim = 0.57f,
-            shadow = 1.68f,
+            rim = 0.5f,
+            shadow = 1.1f,
             quality = 1f,
         ),
         darkIndicator = GlassIndicator(
             restLens = true,
-            restRefraction = 1.13f,
-            restRefractionWidth = 0.66f,
+            restRefraction = 0.56f,
+            restRefractionWidth = 0.33f,
             liftRefraction = 0.93f,
             liftRefractionWidth = 0.48f,
             rainbow = 1.3f,
@@ -303,26 +303,52 @@ enum class GlassPreset(
 }
 
 /**
+ * Preset Liquid Glass buatan pengguna: salinan seluruh pengaturan kaca saat
+ * disimpan (kejernihan, frosted, efek, indikator, dan ukuran nav bar), diberi
+ * nama, lalu disimpan sebagai JSON. Lihat [AppSettings.saveGlassUserPreset].
+ */
+data class GlassUserPreset(
+    val id: String,
+    val name: String,
+    val level: Float,
+    val frosted: Boolean,
+    val custom: GlassCustom,
+    val indicator: GlassIndicator,
+    val bar: GlassBarLayout,
+) {
+    /** True bila pengaturan saat ini sama persis dengan preset ini. */
+    fun matches(
+        level: Float,
+        frosted: Boolean,
+        custom: GlassCustom,
+        indicator: GlassIndicator,
+        bar: GlassBarLayout,
+    ): Boolean =
+        this.level == level && this.frosted == frosted && this.custom == custom &&
+            this.indicator == indicator && this.bar == bar
+}
+
+/**
  * Ukuran manual nav bar Liquid Glass: tab bar, pemutar, jarak/posisi, bar yang
  * dilipat, dan kedalaman tepi. Satuan dp (sp untuk teks). Nilai bawaan = tampilan
  * Zenith saat ini. Terpisah dari preset kaca, jadi preset tidak mengubahnya.
  */
 data class GlassBarLayout(
-    val tabIconSize: Float = 24f,
+    val tabIconSize: Float = 23.5f,
     val tabPadding: Float = 4f,
-    val labelGap: Float = 1f,
-    val pillInset: Float = 4f,
-    val playerHeight: Float = 42f,
+    val labelGap: Float = 1.5f,
+    val pillInset: Float = 4.5f,
+    val playerHeight: Float = 42.5f,
     val playerArt: Float = 30.4f,
-    val playerTitleSize: Float = 13f,
+    val playerTitleSize: Float = 12.5f,
     val playerArtistSize: Float = 12f,
-    val componentGap: Float = 8f,
-    val sideMargin: Float = 19f,
+    val componentGap: Float = 8.5f,
+    val sideMargin: Float = 18f,
     val bottomLift: Float = 6f,
-    val inlineGutter: Float = 28f,
-    val inlineGap: Float = 14f,
+    val inlineGutter: Float = 23.5f,
+    val inlineGap: Float = 6f,
     val inlineLift: Float = 7f,
-    val edgeDepth: Float = 1.9f,
+    val edgeDepth: Float = 1.7f,
 ) {
     val isDefault: Boolean get() = this == DEFAULT
 
@@ -720,6 +746,18 @@ object AppSettings {
     val directSourceStream = MutableStateFlow(false)
 
     /**
+     * The listener says their account has YouTube Premium: take the signed-in
+     * route that reaches Premium's ~256kbps Opus (itag 774) instead of the
+     * anonymous 251. See
+     * [InnerTubeXResolver.extract][com.music.zenith.data.innertube.InnerTubeXResolver.extract].
+     *
+     * Off by default and asked rather than detected: nothing InnerTubeX
+     * exposes confirms the entitlement, and claiming it for an account
+     * without Premium only costs that account the faster anonymous route.
+     */
+    val youtubePremiumAudio = MutableStateFlow(false)
+
+    /**
      * Widens stereo output via [com.music.zenith.playback.SpatialAudioProcessor],
      * a stereo widening + cross-feed effect running inside ExoPlayer's own
      * pipeline. Not true object-based spatial audio — YouTube only ever hands
@@ -923,6 +961,9 @@ object AppSettings {
 
     /** Pengaturan indikator pilihan pada tab bar (lengkung saat diam, refraksi, tepi, bayangan, gerak). */
     val glassIndicator = MutableStateFlow(GlassPreset.DEFAULT.indicator)
+
+    /** Preset Liquid Glass buatan pengguna, urut dari yang pertama disimpan. */
+    val glassUserPresets = MutableStateFlow<List<GlassUserPreset>>(emptyList())
 
     /**
      * Blurs what scrolls under the status bar and the top controls, easing out
@@ -1563,6 +1604,7 @@ object AppSettings {
         loudnessOffOnSpeaker.value = prefs.getBoolean(KEY_LOUDNESS_OFF_ON_SPEAKER, true)
         dolbyAtmos.value = prefs.getBoolean(KEY_DOLBY_ATMOS, true)
         directSourceStream.value = prefs.getBoolean(KEY_DIRECT_SOURCE_STREAM, false)
+        youtubePremiumAudio.value = prefs.getBoolean(KEY_YOUTUBE_PREMIUM_AUDIO, false)
         spatialAudio.value = prefs.getBoolean(KEY_SPATIAL_AUDIO, false)
         spatialAudioByTrack.value = readSpatialAudioByTrack()
         equalizerEnabled.value = prefs.getBoolean(KEY_EQ_ENABLED, false)
@@ -1698,6 +1740,7 @@ object AppSettings {
                 edgeDepth = prefs.getFloat(KEY_GBAR_EDGE_DEPTH, gb.edgeDepth),
             ).coerced(),
         )
+        glassUserPresets.value = readGlassUserPresets()
         progressiveBlur.value = prefs.getBoolean(KEY_PROGRESSIVE_BLUR, false)
         lyricsBlur.value = prefs.getBoolean(KEY_LYRICS_BLUR, true)
         liquidFlow.value = prefs.getBoolean(KEY_LIQUID_FLOW, true)
@@ -1985,6 +2028,13 @@ object AppSettings {
     fun setDirectSourceStream(value: Boolean) {
         directSourceStream.value = value
         prefs.edit().putBoolean(KEY_DIRECT_SOURCE_STREAM, value).apply()
+    }
+
+    fun setYoutubePremiumAudio(value: Boolean) {
+        youtubePremiumAudio.value = value
+        prefs.edit().putBoolean(KEY_YOUTUBE_PREMIUM_AUDIO, value).apply()
+        // Remembered URLs were picked under the old route; the next play asks again.
+        com.music.zenith.data.innertube.StreamResolver.forgetResolved()
     }
 
     fun setSpatialAudio(value: Boolean) {
@@ -2398,6 +2448,168 @@ object AppSettings {
     }
 
     fun resetGlassBar() = setGlassBar(GlassBarLayout.DEFAULT)
+
+    const val GLASS_USER_PRESET_NAME_MAX = 24
+    const val GLASS_USER_PRESETS_MAX = 20
+
+    /**
+     * Menyimpan seluruh pengaturan kaca saat ini sebagai preset bernama. Nama yang
+     * sama (tanpa membedakan huruf besar kecil) menimpa preset lama.
+     */
+    fun saveGlassUserPreset(name: String) {
+        val clean = name.trim().take(GLASS_USER_PRESET_NAME_MAX)
+        if (clean.isEmpty()) return
+        val existing = glassUserPresets.value.firstOrNull { it.name.equals(clean, ignoreCase = true) }
+        if (existing == null && glassUserPresets.value.size >= GLASS_USER_PRESETS_MAX) return
+        val preset = GlassUserPreset(
+            id = existing?.id ?: java.util.UUID.randomUUID().toString(),
+            name = clean,
+            level = glassClarity.value.level,
+            frosted = frostedGlass.value,
+            custom = glassCustom.value,
+            indicator = glassIndicator.value,
+            bar = GlassBarMetrics.layout,
+        )
+        val next = if (existing == null) {
+            glassUserPresets.value + preset
+        } else {
+            glassUserPresets.value.map { if (it.id == existing.id) preset else it }
+        }
+        persistGlassUserPresets(next)
+    }
+
+    fun applyGlassUserPreset(preset: GlassUserPreset) {
+        setGlassClarity(preset.level)
+        setGlassCustom(preset.custom)
+        setGlassIndicator(preset.indicator)
+        setGlassBar(preset.bar)
+        setFrostedGlass(preset.frosted)
+    }
+
+    fun deleteGlassUserPreset(id: String) {
+        persistGlassUserPresets(glassUserPresets.value.filterNot { it.id == id })
+    }
+
+    private fun persistGlassUserPresets(list: List<GlassUserPreset>) {
+        glassUserPresets.value = list
+        val array = org.json.JSONArray()
+        list.forEach { array.put(glassUserPresetToJson(it)) }
+        prefs.edit().putString(KEY_GLASS_USER_PRESETS, array.toString()).apply()
+    }
+
+    private fun readGlassUserPresets(): List<GlassUserPreset> {
+        val raw = prefs.getString(KEY_GLASS_USER_PRESETS, null) ?: return emptyList()
+        return runCatching {
+            val array = org.json.JSONArray(raw)
+            (0 until array.length()).mapNotNull { index ->
+                runCatching { glassUserPresetFromJson(array.getJSONObject(index)) }.getOrNull()
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun org.json.JSONObject.putF(key: String, value: Float): org.json.JSONObject =
+        put(key, value.toDouble())
+
+    private fun org.json.JSONObject.optF(key: String, def: Float): Float =
+        optDouble(key, def.toDouble()).toFloat()
+
+    private fun glassUserPresetToJson(p: GlassUserPreset): org.json.JSONObject {
+        val c = p.custom
+        val i = p.indicator
+        val b = p.bar
+        val custom = org.json.JSONObject()
+            .putF("blur", c.blur).putF("saturation", c.saturation).putF("tint", c.tint)
+            .putF("refraction", c.refraction).putF("refractionWidth", c.refractionWidth)
+            .put("depth", c.depth).putF("rainbow", c.rainbow).putF("rim", c.rim)
+            .putF("shadow", c.shadow).putF("quality", c.quality)
+        val indicator = org.json.JSONObject()
+            .put("restLens", i.restLens).putF("restRefraction", i.restRefraction)
+            .putF("restRefractionWidth", i.restRefractionWidth)
+            .putF("liftRefraction", i.liftRefraction)
+            .putF("liftRefractionWidth", i.liftRefractionWidth).putF("rainbow", i.rainbow)
+            .put("depth", i.depth).putF("blur", i.blur).putF("saturation", i.saturation)
+            .putF("brightness", i.brightness).putF("fill", i.fill).putF("rim", i.rim)
+            .putF("innerShadow", i.innerShadow).putF("innerRadius", i.innerRadius)
+            .putF("shadow", i.shadow).putF("lift", i.lift).putF("iconLift", i.iconLift)
+            .putF("squash", i.squash)
+        val bar = org.json.JSONObject()
+            .putF("tabIconSize", b.tabIconSize).putF("tabPadding", b.tabPadding)
+            .putF("labelGap", b.labelGap).putF("pillInset", b.pillInset)
+            .putF("playerHeight", b.playerHeight).putF("playerArt", b.playerArt)
+            .putF("playerTitleSize", b.playerTitleSize).putF("playerArtistSize", b.playerArtistSize)
+            .putF("componentGap", b.componentGap).putF("sideMargin", b.sideMargin)
+            .putF("bottomLift", b.bottomLift).putF("inlineGutter", b.inlineGutter)
+            .putF("inlineGap", b.inlineGap).putF("inlineLift", b.inlineLift)
+            .putF("edgeDepth", b.edgeDepth)
+        return org.json.JSONObject()
+            .put("id", p.id).put("name", p.name).putF("level", p.level)
+            .put("frosted", p.frosted)
+            .put("custom", custom).put("indicator", indicator).put("bar", bar)
+    }
+
+    private fun glassUserPresetFromJson(o: org.json.JSONObject): GlassUserPreset {
+        val c0 = GlassPreset.DEFAULT.custom
+        val i0 = GlassPreset.DEFAULT.indicator
+        val b0 = GlassBarLayout.DEFAULT
+        val c = o.getJSONObject("custom")
+        val i = o.getJSONObject("indicator")
+        val b = o.getJSONObject("bar")
+        return GlassUserPreset(
+            id = o.getString("id"),
+            name = o.getString("name"),
+            level = o.optF("level", GlassPreset.DEFAULT.level).coerceIn(0f, 1f),
+            frosted = o.optBoolean("frosted", false),
+            custom = GlassCustom(
+                blur = c.optF("blur", c0.blur),
+                saturation = c.optF("saturation", c0.saturation),
+                tint = c.optF("tint", c0.tint),
+                refraction = c.optF("refraction", c0.refraction),
+                refractionWidth = c.optF("refractionWidth", c0.refractionWidth),
+                depth = c.optBoolean("depth", c0.depth),
+                rainbow = c.optF("rainbow", c0.rainbow),
+                rim = c.optF("rim", c0.rim),
+                shadow = c.optF("shadow", c0.shadow),
+                quality = c.optF("quality", c0.quality),
+            ).coerced(),
+            indicator = GlassIndicator(
+                restLens = i.optBoolean("restLens", i0.restLens),
+                restRefraction = i.optF("restRefraction", i0.restRefraction),
+                restRefractionWidth = i.optF("restRefractionWidth", i0.restRefractionWidth),
+                liftRefraction = i.optF("liftRefraction", i0.liftRefraction),
+                liftRefractionWidth = i.optF("liftRefractionWidth", i0.liftRefractionWidth),
+                rainbow = i.optF("rainbow", i0.rainbow),
+                depth = i.optBoolean("depth", i0.depth),
+                blur = i.optF("blur", i0.blur),
+                saturation = i.optF("saturation", i0.saturation),
+                brightness = i.optF("brightness", i0.brightness),
+                fill = i.optF("fill", i0.fill),
+                rim = i.optF("rim", i0.rim),
+                innerShadow = i.optF("innerShadow", i0.innerShadow),
+                innerRadius = i.optF("innerRadius", i0.innerRadius),
+                shadow = i.optF("shadow", i0.shadow),
+                lift = i.optF("lift", i0.lift),
+                iconLift = i.optF("iconLift", i0.iconLift),
+                squash = i.optF("squash", i0.squash),
+            ).coerced(),
+            bar = GlassBarLayout(
+                tabIconSize = b.optF("tabIconSize", b0.tabIconSize),
+                tabPadding = b.optF("tabPadding", b0.tabPadding),
+                labelGap = b.optF("labelGap", b0.labelGap),
+                pillInset = b.optF("pillInset", b0.pillInset),
+                playerHeight = b.optF("playerHeight", b0.playerHeight),
+                playerArt = b.optF("playerArt", b0.playerArt),
+                playerTitleSize = b.optF("playerTitleSize", b0.playerTitleSize),
+                playerArtistSize = b.optF("playerArtistSize", b0.playerArtistSize),
+                componentGap = b.optF("componentGap", b0.componentGap),
+                sideMargin = b.optF("sideMargin", b0.sideMargin),
+                bottomLift = b.optF("bottomLift", b0.bottomLift),
+                inlineGutter = b.optF("inlineGutter", b0.inlineGutter),
+                inlineGap = b.optF("inlineGap", b0.inlineGap),
+                inlineLift = b.optF("inlineLift", b0.inlineLift),
+                edgeDepth = b.optF("edgeDepth", b0.edgeDepth),
+            ).coerced(),
+        )
+    }
 
     /** Tema gelap yang sedang aktif, dipakai preset yang punya nilai terang dan gelap. */
     private var glassDarkTheme = false
@@ -3294,6 +3506,7 @@ object AppSettings {
     private const val KEY_LOUDNESS_OFF_ON_SPEAKER = "loudness_off_on_speaker"
     private const val KEY_DOLBY_ATMOS = "dolby_atmos"
     private const val KEY_DIRECT_SOURCE_STREAM = "direct_source_stream"
+    private const val KEY_YOUTUBE_PREMIUM_AUDIO = "youtube_premium_audio"
     private const val KEY_SPATIAL_AUDIO = "spatial_audio"
     private const val KEY_SPATIAL_AUDIO_BY_TRACK = "spatial_audio_by_track"
     private const val MAX_SPATIAL_TRACKS = 5000
@@ -3394,6 +3607,7 @@ object AppSettings {
     private const val KEY_GBAR_INLINE_GAP = "glass_bar_inline_gap"
     private const val KEY_GBAR_INLINE_LIFT = "glass_bar_inline_lift"
     private const val KEY_GBAR_EDGE_DEPTH = "glass_bar_edge_depth"
+    private const val KEY_GLASS_USER_PRESETS = "glass_user_presets"
     private const val KEY_PROGRESSIVE_BLUR = "progressive_blur"
     private const val KEY_LYRICS_BLUR = "lyrics_blur"
     private const val KEY_LIQUID_FLOW = "liquid_flow_motion"

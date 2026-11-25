@@ -2268,10 +2268,47 @@ fun MoodGridPage(
             verticalArrangement = Arrangement.spacedBy(20.dp),
             modifier = Modifier.padding(horizontal = PAGE_GUTTER),
         ) {
-            gridItems(TopPickMood.entries, key = { it.name }) { mood ->
+            val moods = TopPickMood.entries.filter { it.isCoreMood }
+            val activities = TopPickMood.entries.filter { !it.isCoreMood }
+            item(
+                key = "mood-header",
+                span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) },
+            ) {
+                MoodSectionHeader("Moods", "Pick a feeling and start a station")
+            }
+            gridItems(moods, key = { it.name }) { mood ->
                 MoodTile(mood, onClick, Modifier.fillMaxWidth())
             }
+            if (activities.isNotEmpty()) {
+                item(
+                    key = "activity-header",
+                    span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) },
+                ) {
+                    MoodSectionHeader("Activities", "Music for whatever you're doing")
+                }
+                gridItems(activities, key = { it.name }) { mood ->
+                    MoodTile(mood, onClick, Modifier.fillMaxWidth())
+                }
+            }
         }
+    }
+}
+
+/** A section title with a one-line caption, spanning the full width of the mood grid. */
+@Composable
+private fun MoodSectionHeader(title: String, subtitle: String) {
+    Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

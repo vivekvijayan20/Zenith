@@ -16,7 +16,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
@@ -139,9 +142,12 @@ fun MotionLyricLine(
     }
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val motionStyle = remember(style) {
+    val cursive = remember(text) { text.any(::isCursiveChar) }
+    val motionStyle = remember(style, cursive) {
         style.copy(
-            fontFeatureSettings = MotionTuning.NoLigatures,
+            // Aksara bersambung butuh ligatur dan letter-spacing normal agar sambungan huruf utuh.
+            fontFeatureSettings = if (cursive) style.fontFeatureSettings else MotionTuning.NoLigatures,
+            letterSpacing = if (cursive) 0.sp else style.letterSpacing,
             color = Color.Unspecified,
             // Teks beranimasi (naik + membesar): matikan hinting & snap piksel
             // supaya huruf tidak bergetar saat di-scale/translate tiap frame.
@@ -304,7 +310,28 @@ private fun DrawScope.drawMotion(
         }) {
             // Plus (plusLighter di Apple Music): huruf yang belum dinyanyikan menambah
             // cahaya ke latar, jadi warnanya ikut cover dan bukan abu-abu datar.
-            drawText(g, color = inactive, topLeft = tl, blendMode = BlendMode.Plus)
+            if (isCursiveChar(lay.result.layoutInput.text.text[lay.charIndex[i]])) {
+                // Kontur huruf Arab saling tumpang tindih di sambungan. Blend Plus langsung
+                // menjumlah area itu dua kali (garis putih), jadi gambar dulu ke layer
+                // lalu gabungkan dengan Plus sekali saja.
+                val pad = rt.fontPx * 0.5f
+                drawIntoCanvas { canvas ->
+                    val layerPaint = Paint().apply { blendMode = BlendMode.Plus }
+                    canvas.saveLayer(
+                        Rect(
+                            tl.x - pad,
+                            tl.y - pad,
+                            tl.x + g.size.width + pad,
+                            tl.y + g.size.height + pad,
+                        ),
+                        layerPaint,
+                    )
+                    drawText(g, color = inactive, topLeft = tl)
+                    canvas.restore()
+                }
+            } else {
+                drawText(g, color = inactive, topLeft = tl, blendMode = BlendMode.Plus)
+            }
             val feather = (rt.fontPx * MotionTuning.SweepFeatherEm).coerceAtLeast(1f)
             val rtl = lay.rtl[i]
             // Posisi kepala karaoke di ruang lokal huruf (0..w); bisa di luar rentang

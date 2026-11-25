@@ -69,6 +69,7 @@ object CommunityCanvas {
             artist = hit.artist,
             // The album was already checked above; matches() would re-check it strictly.
             album = null,
+            source = CanvasSource.ZENITH,
         )
     }
 
@@ -97,6 +98,7 @@ object CommunityCanvas {
             title = hit.album,
             artist = hit.artist,
             album = hit.album,
+            source = CanvasSource.ZENITH,
         )
     }
 

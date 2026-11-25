@@ -316,6 +316,26 @@ object ZenithIcons {
             viewportWidth = 512f, viewportHeight = 512f,
         ).addPath(pathData = addPathNodes(pathData), fill = stroke).build()
 
+    /**
+     * A filled glyph drawn in a 28-unit box, shifted by ([offsetX], [offsetY]) so it
+     * sits centred in the 24-unit canvas the rest of the family uses. Its stroke
+     * weight (about 2.2 of 24) and size then match the neighbouring icons.
+     */
+    private fun glyph28(name: String, pathData: String, offsetX: Float, offsetY: Float): ImageVector =
+        ImageVector.Builder(
+            name = name,
+            defaultWidth = 24.dp, defaultHeight = 24.dp,
+            viewportWidth = 24f, viewportHeight = 24f,
+        ).apply {
+            addGroup(translationX = offsetX, translationY = offsetY)
+            addPath(
+                pathData = addPathNodes(pathData),
+                pathFillType = PathFillType.EvenOdd,
+                fill = stroke,
+            )
+            clearGroup()
+        }.build()
+
     val Search: ImageVector by lazy {
         ImageVector.Builder(
             name = "bc_search",
@@ -366,32 +386,32 @@ object ZenithIcons {
     }
 
     val Shuffle: ImageVector by lazy {
-        ImageVector.Builder(
+        glyph28(
             name = "bc_shuffle",
-            defaultWidth = 24.dp, defaultHeight = 24.dp,
-            viewportWidth = 24f, viewportHeight = 24f,
-        ).apply {
-            path(
-                stroke = stroke,
-                strokeLineWidth = STROKE,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            ) {
-                // Strand that crosses downwards, with its arrow head
-                moveTo(3.4f, 7.4f); lineTo(7f, 7.4f); lineTo(16.6f, 16.6f); lineTo(20.6f, 16.6f)
-                moveTo(18.1f, 14.1f); lineTo(20.6f, 16.6f); lineTo(18.1f, 19.1f)
-                // Strand that crosses upwards, broken around the intersection
-                moveTo(3.4f, 16.6f); lineTo(7f, 16.6f); lineTo(9.8f, 13.9f)
-                moveTo(13.9f, 10.1f); lineTo(16.6f, 7.4f); lineTo(20.6f, 7.4f)
-                moveTo(18.1f, 4.9f); lineTo(20.6f, 7.4f); lineTo(18.1f, 9.9f)
-            }
-        }.build()
+            pathData = "M5,17.9924C5,17.445 5.4596,17.0096 6.029,17.0096L7.6479,17.0096C8.5259,17.0096 9.0198,16.825 9.5823,16.1852L11.0777,14.4901L9.5823,12.7884C9.0198,12.1553 8.5259,11.9706 7.6479,11.9706L6.029,11.9706C5.4596,11.9706 5,11.5287 5,10.9878C5,10.4404 5.4596,9.9985 6.029,9.9985L7.7027,9.9985C9.0198,9.9985 10.0556,10.3415 10.968,11.3638L12.4017,12.9929L13.8422,11.3638C14.7409,10.348 15.7698,9.9985 17.1075,9.9985L18.6578,9.9985L18.6578,8.7585C18.6578,8.3034 18.9665,8 19.4466,8C19.6524,8 19.8582,8.0791 20.016,8.2045L22.7119,10.3744C23.096,10.6844 23.096,11.1857 22.7119,11.4957L20.016,13.6525C19.8582,13.7844 19.6524,13.8569 19.4466,13.8569C18.9665,13.8569 18.6578,13.5601 18.6578,13.105L18.6578,11.9706L17.1692,11.9706C16.2774,11.9706 15.7904,12.1553 15.2348,12.7884L13.7325,14.4901L15.2348,16.1852C15.7904,16.8184 16.2774,17.0096 17.1692,17.0096L18.6578,17.0096L18.6578,15.9016C18.6578,15.4465 18.9665,15.1431 19.4466,15.1431C19.6524,15.1431 19.8582,15.2222 20.016,15.3475L22.7119,17.5175C23.096,17.8275 23.096,18.3288 22.7119,18.6388L20.016,20.7955C19.8582,20.9209 19.6524,21 19.4466,21C18.9665,21 18.6578,20.7032 18.6578,20.2481L18.6578,18.9817L17.1075,18.9817C15.7698,18.9817 14.7409,18.6322 13.8422,17.6164L12.4017,15.9873L10.968,17.6164C10.0556,18.6388 9.0198,18.9751 7.7027,18.9751L6.029,18.9751C5.4596,18.9751 5,18.5398 5,17.9924Z",
+            offsetX = -2f,
+            offsetY = -2.5f,
+        )
     }
 
-    val Repeat: ImageVector by lazy { repeatArrows("bc_repeat", one = false) }
+    val Repeat: ImageVector by lazy {
+        glyph28(
+            name = "bc_repeat",
+            pathData = "M6,13.4599L6,12.8189C6,10.5144 7.6993,9.0957 10.2777,9.0957L15.5602,9.0957L15.5602,7.821C15.5602,7.3313 15.8927,7 16.4098,7C16.6315,7 16.8605,7.0864 17.023,7.2233L19.9339,9.5926C20.3403,9.9311 20.3477,10.4856 19.9339,10.8169L17.023,13.1718C16.8605,13.3086 16.6315,13.3951 16.4098,13.3951C15.8927,13.3951 15.5602,13.071 15.5602,12.5741L15.5602,11.2634L10.1373,11.2634C8.9774,11.2634 8.2534,11.9331 8.2534,12.9918L8.2534,13.4599C8.2534,14.072 7.751,14.5617 7.123,14.5617C6.5024,14.5617 6,14.072 6,13.4599ZM13.4398,15.4331L13.4398,16.7366L18.8627,16.7366C20.0226,16.7366 20.7466,16.0597 20.7466,15.001L20.7466,14.5329C20.7466,13.9208 21.249,13.4311 21.8696,13.4311C22.4976,13.4311 23,13.9208 23,14.5329L23,15.1739C23,17.4784 21.3007,18.9043 18.7223,18.9043L13.4398,18.9043L13.4398,20.179C13.4398,20.6759 13.1073,21 12.5902,21C12.3685,21 12.1395,20.9208 11.977,20.784L9.0661,18.4146C8.6523,18.0689 8.6597,17.5216 9.0661,17.1903L11.977,14.8282C12.1395,14.6914 12.3685,14.6121 12.5902,14.6121C13.1073,14.6121 13.4398,14.9362 13.4398,15.4331Z",
+            offsetX = -2.5f,
+            offsetY = -2f,
+        )
+    }
 
     /** [Repeat] with the 1 of repeat-one beside the top arrow, as Apple Music draws it. */
-    val RepeatOne: ImageVector by lazy { repeatArrows("bc_repeat_one", one = true) }
+    val RepeatOne: ImageVector by lazy {
+        glyph28(
+            name = "bc_repeat_one",
+            pathData = "M13.5,15.5v1.4h5.6c1.1,0 1.9,-0.7 1.9,-1.8v-0.5c0,-0.6 0.5,-1 1,-1c0.6,0 1,0.5 1,1v0.6c0,2.3 -1.7,3.7 -4.1,3.7h-5.4v1.4c0,0.5 -0.3,0.8 -0.8,0.8c-0.2,0 -0.4,-0.1 -0.6,-0.2l-2.9,-2.3c-0.4,-0.3 -0.4,-0.9 0,-1.2l2.9,-2.3c0.2,-0.1 0.4,-0.2 0.6,-0.2C13.1,14.7 13.5,15 13.5,15.5zM6,13.5v-0.6c0,-2.3 1.7,-3.7 4.1,-3.7h3.8V7.9c0,-0.5 0.3,-0.8 0.8,-0.8c0.2,0 0.4,0.1 0.6,0.2l2.9,2.3c0.4,0.3 0.4,0.9 0,1.2l-2.9,2.3c-0.2,0.1 -0.4,0.2 -0.6,0.2c-0.5,0 -0.8,-0.3 -0.8,-0.8v-1.4h-4c-1.1,0 -1.9,0.7 -1.9,1.8v0.5c0,0.6 -0.5,1 -1,1C6.5,14.5 6,14 6,13.5zM22,12.4c-0.5,0 -0.9,-0.3 -0.9,-0.9V8.7h0l-0.6,0.5c-0.2,0.1 -0.3,0.2 -0.5,0.2c-0.4,0 -0.6,-0.3 -0.6,-0.6c0,-0.3 0.1,-0.4 0.4,-0.6l0.9,-0.7C21,7.1 21.3,7 21.8,7c0.6,0 1.1,0.4 1.1,1v3.5C22.9,12.1 22.5,12.4 22,12.4z",
+            offsetX = -2.5f,
+            offsetY = -2f,
+        )
+    }
 
     /**
      * Apple Music's repeat glyph (SF Symbol "repeat"): two strands with rounded
@@ -485,26 +505,12 @@ object ZenithIcons {
 
     /** AutoPlay's lemniscate. */
     val Infinity: ImageVector by lazy {
-        ImageVector.Builder(
+        glyph28(
             name = "bc_infinity",
-            defaultWidth = 24.dp, defaultHeight = 24.dp,
-            viewportWidth = 24f, viewportHeight = 24f,
-        ).apply {
-            path(
-                stroke = stroke,
-                strokeLineWidth = STROKE,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            ) {
-                moveTo(12f, 12f)
-                curveTo(10.1f, 9.1f, 8.7f, 8f, 7.1f, 8f)
-                arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = false, 0f, 8f)
-                curveTo(8.7f, 16f, 10.1f, 14.9f, 12f, 12f)
-                curveTo(13.9f, 9.1f, 15.3f, 8f, 16.9f, 8f)
-                arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0f, 8f)
-                curveTo(15.3f, 16f, 13.9f, 14.9f, 12f, 12f)
-            }
-        }.build()
+            pathData = "M18.4536,18.2651C21.1602,18.2651 23.2041,16.2773 23.2041,13.6382C23.2041,10.999 21.1826,9.0337 18.4761,9.0337C16.668,9.0337 15.2192,9.9209 13.6133,12.0098C11.9063,9.8423 10.5249,9 8.7505,9C6.0439,9 4,10.9878 4,13.627C4,16.2661 6.0215,18.2314 8.728,18.2314C10.5249,18.2314 11.9512,17.3667 13.5908,15.2554C15.3315,17.4341 16.6904,18.2651 18.4536,18.2651ZM18.375,16.1426C17.2407,16.1426 16.3872,15.5361 14.8711,13.6382C16.1963,11.8188 17.1846,11.1113 18.3862,11.1113C19.8687,11.1113 20.9468,12.1782 20.9468,13.6157C20.9468,15.0645 19.8462,16.1426 18.375,16.1426ZM8.8179,16.1538C7.3467,16.1538 6.2573,15.0757 6.2573,13.6382C6.2573,12.1895 7.3467,11.1226 8.8179,11.1226C9.9634,11.1226 10.8281,11.7402 12.333,13.627C10.9966,15.4463 10.0195,16.1538 8.8179,16.1538Z",
+            offsetX = -1.6f,
+            offsetY = -1.65f,
+        )
     }
 
     /** Beamed pair of notes, for instrumental stretches in the lyrics. */

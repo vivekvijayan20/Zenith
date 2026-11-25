@@ -9,6 +9,9 @@ import com.music.zenith.sharedui.resources.spotify_logo
 import org.jetbrains.compose.resources.painterResource
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -258,6 +261,7 @@ fun AccountAndScrobblingScreen(
     channelName: String?,
     onSignIn: () -> Unit,
     onSwitchChannel: () -> Unit,
+    canSwitchProfile: Boolean = true,
     onSignOut: () -> Unit,
     onOpenListenBrainzLogin: () -> Unit,
     onOpenLastfmLogin: () -> Unit,
@@ -282,6 +286,7 @@ fun AccountAndScrobblingScreen(
     val discordUsername by AppSettings.discordUsername.collectAsStateWithLifecycle()
     val discordRpcEnabled by AppSettings.discordRpcEnabled.collectAsStateWithLifecycle()
     val spotifyConnected by AppSettings.spotifySpdcToken.collectAsStateWithLifecycle()
+    val youtubePremiumAudio by AppSettings.youtubePremiumAudio.collectAsStateWithLifecycle()
     var editingProfile by remember { mutableStateOf(false) }
 
     Column(
@@ -303,7 +308,7 @@ fun AccountAndScrobblingScreen(
                 signedIn = signedIn,
                 account = account,
                 onSignIn = onSignIn,
-                onClick = onSwitchChannel,
+                onClick = onSwitchChannel.takeIf { canSwitchProfile },
                 grouped = true,
             )
             if (signedIn) {
@@ -313,12 +318,13 @@ fun AccountAndScrobblingScreen(
                     title = stringResource(R.string.edit_profile),
                     onClick = { editingProfile = true },
                 )
+
+                // With the account because it is a claim about the account: only a
+                // signed-in Premium session is offered the higher Opus rung.
                 FullWidthDivider()
-                SettingsRow(
-                    icon = SfIcons.SwitchAccount,
-                    title = stringResource(R.string.listen_as),
-                    subtitle = channelName ?: stringResource(R.string.default_youtube_profile),
-                    onClick = onSwitchChannel,
+                PremiumAudioCard(
+                    checked = youtubePremiumAudio,
+                    onCheckedChange = AppSettings::setYoutubePremiumAudio,
                 )
                 FullWidthDivider()
                 DestructiveRow(label = stringResource(R.string.sign_out), onClick = onSignOut)
@@ -552,4 +558,74 @@ fun AccountAndScrobblingScreen(
 @Composable
 private fun FullWidthDivider() {
     HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outline)
+}
+
+/** The YouTube Premium audio toggle: accent glyph tile, quality chip, short explanation, switch. */
+@Composable
+private fun PremiumAudioCard(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 28.dp, height = 20.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(androidx.compose.ui.graphics.Color(0xFFFF0000)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = SfIcons.Play,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(11.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.youtube_premium_audio),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "256 kbps",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accent,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.16f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = stringResource(R.string.youtube_premium_audio_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        IosSwitch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }

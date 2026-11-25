@@ -1,7 +1,7 @@
 package com.music.zenith.playback
 
 /** Past this point in a track, back restarts it instead of skipping to the previous one. */
-const val BACK_RESTARTS_AFTER_MS = 10_000L
+const val BACK_RESTARTS_AFTER_MS = 5_000L
 
 /**
  * Where AutoPlay's section of the queue begins, and so where a track queued by

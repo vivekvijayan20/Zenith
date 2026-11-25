@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -133,6 +134,13 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import dev.chrisbanes.haze.HazeState
 
 /**
  * "Playing from …", "Played by …" or the radio station — what the player is
@@ -1942,9 +1950,11 @@ private fun LosslessOrStats(
             animated = true,
             // Lossless and Hi-Res Lossless sit in a chip, as in Apple Music.
             chip = true,
+            // Tapping the chip opens the measured stream details.
+            detail = nerdStats,
             modifier = modifier,
         )
-        nerdStats?.isDolbyAtmos == true || dolbyAtmosActive -> LosslessLabel(
+        nerdStats?.isDolbyAtmos == true -> LosslessLabel(
             text = "Dolby Atmos",
             animated = true,
             iconPainter = painterResource(Res.drawable.ic_dolby_atmos),
@@ -1953,12 +1963,31 @@ private fun LosslessOrStats(
         // Lossy, but the good end of lossy — a module's 320kbps tier, which
         // for a great many tracks is the best copy that exists anywhere the
         // app can reach. See [NerdStats.Snapshot.isHiQuality].
+        // Served by JioSaavn: the badge says only "JioSaavn", with its logo,
+        // and is a chip that opens the stream details card when tapped.
+        nerdStats?.isHiQuality == true && nerdStats.isJioSaavn() -> LosslessLabel(
+            text = "JioSaavn",
+            animated = false,
+            iconPainter = painterResource(Res.drawable.ic_jiosaavn),
+            iconSize = 13.dp,
+            chip = true,
+            detail = nerdStats,
+            modifier = modifier,
+        )
         nerdStats?.isHiQuality == true -> LosslessLabel(
             text = stringResource(Res.string.high_quality),
             animated = false,
             iconPainter = rememberVectorPainter(Icons.Rounded.Headphones),
             // A Material glyph's own size is 24dp; the badge's are drawn small.
             iconSize = 13.dp,
+            modifier = modifier,
+        )
+        // Fallback: no quality badge applies, but Atmos is switched on in
+        // settings and playable on this device, so its badge stays visible.
+        dolbyAtmosActive -> LosslessLabel(
+            text = "Dolby Atmos",
+            animated = true,
+            iconPainter = painterResource(Res.drawable.ic_dolby_atmos),
             modifier = modifier,
         )
         // Below that, no badge: "Medium Quality" and "Data Saver" are gone.
@@ -1980,7 +2009,19 @@ private fun LosslessLabel(
     iconSize: Dp = Dp.Unspecified,
     /** Wraps the label in a small rounded chip tinted by the player tint. */
     chip: Boolean = false,
+    /** When set together with [chip], the chip opens into the quality detail card. */
+    detail: NerdStats.Snapshot? = null,
 ) {
+    if (chip && detail != null) {
+        QualityMorphChip(
+            text = text,
+            iconPainter = iconPainter,
+            iconSize = iconSize,
+            animated = animated,
+            modifier = modifier,
+        )
+        return
+    }
     // Only while asked for, and not at all under "Reduce animation": the
     // label then just holds still, which says "waiting" well enough.
     val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
@@ -2049,6 +2090,323 @@ private fun LosslessLabel(
             )
         }
     }
+}
+
+/** The quality card is a compact card, not the full-width popup. */
+private val QUALITY_POPUP_WIDTH = 300.dp
+private val QUALITY_ROW_HEIGHT = 40.dp
+
+/** One label/value line of the quality card. */
+private class QualityRow(val label: String, val value: String)
+
+/**
+ * What the badge and the quality card share. The card is the badge grown, so it
+ * needs the badge's bounds to start from ([anchor]), and the badge needs to know
+ * how far open the card is ([progress]) to fade out under it and back in as the
+ * card folds away. Provided by [FrostedPlayerFrame], which also hosts the card;
+ * null where there is no popup layer, and the badge then isn't tappable.
+ */
+@Stable
+internal class QualityDetailState {
+    var open by mutableStateOf(false)
+    var anchor by mutableStateOf<Rect?>(null)
+    var progress by mutableFloatStateOf(0f)
+}
+
+internal val LocalQualityDetail = compositionLocalOf<QualityDetailState?> { null }
+
+/** Whether this stream was served by JioSaavn, judged by the source's display name. */
+private fun NerdStats.Snapshot.isJioSaavn(): Boolean =
+    sourceName?.contains("jiosaavn", ignoreCase = true) == true
+
+private fun NerdStats.Snapshot.rateLabel(): String? = sampleRateHz?.let {
+    NerdStats.megahertzLabel(it) ?: "%.1f kHz".format(Locale.ROOT, it / 1000f)
+}
+
+/** "44.1 kHz FLAC", or "24-bit/96 kHz FLAC" once it is past CD quality. */
+@Composable
+private fun NerdStats.Snapshot.qualitySummary(): String {
+    val depth = bitDepth?.let { stringResource(Res.string.bit_depth, it) }
+    val rate = rateLabel()
+    val resolution = if (isHiRes && depth != null && rate != null) "$depth/$rate" else rate
+    return listOfNotNull(resolution, codecLabel(mimeType)).joinToString(" ")
+}
+
+/** The rows of the card. A figure the player has not reported is left out. */
+@Composable
+private fun NerdStats.Snapshot.qualityRows(): List<QualityRow> = buildList {
+    sourceName?.takeIf { it.isNotBlank() }?.let {
+        add(QualityRow(stringResource(Res.string.quality_info_source), it))
+    }
+    (bitrateKbps ?: pcmDataRateKbps)?.let {
+        add(QualityRow(stringResource(Res.string.quality_info_bitrate), "$it kbps"))
+    }
+    listOfNotNull(codecLabel(mimeType), container).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
+        add(QualityRow(stringResource(Res.string.quality_info_codec), it))
+    }
+    val resolution = listOfNotNull(
+        bitDepth?.let { stringResource(Res.string.bit_depth, it) },
+        rateLabel(),
+    ).joinToString(" · ")
+    if (resolution.isNotEmpty()) {
+        add(QualityRow(stringResource(Res.string.quality_info_resolution), resolution))
+    }
+    channels?.let {
+        add(
+            QualityRow(
+                stringResource(Res.string.quality_info_channels),
+                when (it) {
+                    1 -> stringResource(Res.string.mono)
+                    2 -> stringResource(Res.string.stereo)
+                    else -> stringResource(Res.string.channel_count, it)
+                },
+            ),
+        )
+    }
+}
+
+/**
+ * The Lossless / Hi-Res Lossless chip. A tap grows this very box into the
+ * quality card: [QualityDetailPopup] starts from the chip's own bounds, so it
+ * reads as one surface growing rather than a card appearing beside it. The
+ * chip's label fades out under the growing card and back in as it folds away.
+ * Otherwise the chip only gives a small jelly press, and holds still under
+ * "Reduce animation".
+ */
+@Composable
+private fun QualityMorphChip(
+    text: String,
+    iconPainter: Painter,
+    iconSize: Dp = Dp.Unspecified,
+    animated: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val detail = LocalQualityDetail.current
+    val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed && !reduceAnimation) 0.93f else 1f,
+        animationSpec = spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMedium),
+        label = "qualityChipPress",
+    )
+    val detailsLabel = stringResource(Res.string.quality_info_details)
+    var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    Box(
+        modifier = modifier
+            // Measured without a height cap, same as the plain chip, so the
+            // bounds the card grows from are the chip's real size.
+            .wrapContentHeight(align = Alignment.CenterVertically, unbounded = true)
+            .onGloballyPositioned { coords = it }
+            .graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+                val d = detail
+                alpha = if (d == null || !d.open) 1f else (1f - d.progress * 8f).coerceIn(0f, 1f)
+            }
+            .semantics { contentDescription = detailsLabel }
+            .then(
+                if (detail != null) {
+                    Modifier.clickable(interactionSource = interaction, indication = null) {
+                        coords?.takeIf { it.isAttached }?.let { detail.anchor = it.boundsInWindow() }
+                        detail.progress = 0f
+                        detail.open = true
+                    }
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        LosslessLabel(
+            text = text,
+            animated = animated,
+            iconPainter = iconPainter,
+            iconSize = iconSize,
+            chip = true,
+        )
+    }
+}
+
+/**
+ * The quality card: logo, title, summary and the measured spec rows. A
+ * [PlayerPopup] grown out of the badge's own bounds, so it is the same material
+ * and motion as the ⋯ menu's popups: frosted over a still of the player, with
+ * the menu's jelly under a dragging finger, resting on the badge's bottom edge.
+ *
+ * Closes itself if the stream stops being lossless underneath it, such as on a
+ * track change, rather than keep describing a stream that is gone.
+ */
+@Composable
+internal fun QualityDetailPopup(
+    state: QualityDetailState,
+    hazeState: HazeState,
+    modifier: Modifier = Modifier,
+) {
+    val latest by NerdStats.current.collectAsStateWithLifecycle()
+    val dismiss: () -> Unit = {
+        state.open = false
+        state.progress = 0f
+    }
+    val detailShown = latest?.let { it.isLossless || (it.isHiQuality && it.isJioSaavn()) } == true
+    LaunchedEffect(detailShown) {
+        if (!detailShown) dismiss()
+    }
+    val stats = latest?.takeIf { detailShown } ?: return
+    val rows = stats.qualityRows()
+    val summary = stats.qualitySummary()
+    PlayerPopup(
+        hazeState = hazeState,
+        title = "",
+        onDismiss = dismiss,
+        modifier = modifier,
+        titleGap = 2.dp,
+        maxWidth = QUALITY_POPUP_WIDTH,
+        menuJelly = true,
+        anchorRect = state.anchor,
+        onProgress = { state.progress = it },
+        header = {
+            // Icon and label side by side, centred in the card.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ShimmerIcon(
+                    painter = painterResource(
+                        if (stats.isLossless) Res.drawable.ic_lossless else Res.drawable.ic_jiosaavn,
+                    ),
+                    modifier = if (stats.isLossless) {
+                        Modifier.size(width = 46.dp, height = 25.dp)
+                    } else {
+                        Modifier.size(26.dp)
+                    },
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = when {
+                        !stats.isLossless -> "JioSaavn"
+                        stats.isHiRes -> stringResource(Res.string.hi_res_lossless)
+                        else -> stringResource(Res.string.lossless)
+                    },
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = (-0.2).sp,
+                    ),
+                    color = Color.White,
+                    maxLines = 1,
+                )
+            }
+        },
+    ) {
+        if (summary.isNotEmpty()) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                ),
+                color = Color.White.copy(alpha = 0.7f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .padding(bottom = 10.dp),
+            )
+        }
+        rows.forEachIndexed { index, row ->
+            if (index > 0) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                        .height(0.5.dp)
+                        .background(Color.White.copy(alpha = 0.10f)),
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .heightIn(min = QUALITY_ROW_HEIGHT)
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = row.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.6f),
+                    maxLines = 1,
+                )
+                Spacer(Modifier.width(12.dp))
+                // A long value, such as a source name, wraps to a second line
+                // instead of being cut off.
+                Text(
+                    text = row.value,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = Color.White,
+                    textAlign = TextAlign.End,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The quality glyph with the same highlight band as [ShimmerText] sweeping
+ * across it. The glyph is drawn once in a dimmed white and the band is painted
+ * over it in the draw phase with SrcIn, so a frame of the sweep recomposes
+ * nothing. Holds still under "Reduce animation".
+ */
+@Composable
+private fun ShimmerIcon(
+    painter: Painter,
+    modifier: Modifier = Modifier,
+) {
+    val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val progress = if (reduceAnimation) {
+        null
+    } else {
+        rememberInfiniteTransition(label = "quality-icon-shimmer").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 2_400, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "quality-icon-shimmer-progress",
+        )
+    }
+    val baseColor = Color.White.copy(alpha = 0.55f)
+    Icon(
+        painter = painter,
+        contentDescription = null,
+        tint = Color.White,
+        modifier = modifier
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                val p = progress?.value ?: return@drawWithContent
+                val width = size.width
+                val band = width * 0.6f
+                val center = -band + p * (width + 2 * band)
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colorStops = arrayOf(0f to baseColor, 0.5f to Color.White, 1f to baseColor),
+                        start = Offset(center - band, 0f),
+                        end = Offset(center + band, 0f),
+                    ),
+                    blendMode = BlendMode.SrcIn,
+                )
+            },
+    )
 }
 
 /**

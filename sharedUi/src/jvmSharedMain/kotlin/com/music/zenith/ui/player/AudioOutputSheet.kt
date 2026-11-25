@@ -120,6 +120,7 @@ internal fun AudioOutputSheet(
         onDismiss = onDismiss,
         modifier = modifier,
         titleGap = 10.dp,
+        menuJelly = true,
     ) {
         NowPlayingInfo(song = song, artworkUrl = artworkUrl)
         Spacer(Modifier.height(10.dp))

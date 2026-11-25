@@ -190,7 +190,7 @@ object StreamChoice {
     }
 
     /** Long enough to outlast any one play, far short of any signed URL's life. */
-    private const val TTL_MS = 15 * 60 * 1000L
+    private const val TTL_MS = 3 * 60 * 60 * 1000L
 
     /**
      * How long a track stays off substitution after one broke it.

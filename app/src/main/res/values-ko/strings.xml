@@ -111,6 +111,8 @@
     <string name="testing">테스트 중…</string>
     <string name="connected">연결됨</string>
     <string name="account_integrations">계정 &amp; 연동</string>
+    <string name="youtube_premium_audio">프리미엄 오디오</string>
+    <string name="youtube_premium_audio_subtitle">더 높은 음질. YouTube Premium 전용.</string>
     <string name="spotify_connect_subtitle">로그인하여 재생목록을 불러오세요. 재생은 YouTube Music을 사용해요.</string>
     <string name="spotify_sign_in">Spotify로 로그인</string>
     <string name="spotify_use_spdc_token">sp_dc 토큰 사용</string>
@@ -378,6 +380,11 @@
     <string name="glass_section_preset">투명도 프리셋</string>
     <string name="glass_section_ready_presets">글래스 프리셋</string>
     <string name="glass_footer_ready_presets">여러 값을 한 번에 바꿔요. 아래 슬라이더로 더 다듬을 수 있어요.</string>
+    <string name="glass_section_my_presets">내 프리셋</string>
+    <string name="glass_footer_my_presets">현재 글래스 설정을 내비게이션 바 크기까지 저장해요. 같은 이름으로 저장하면 기존 프리셋을 덮어써요.</string>
+    <string name="glass_preset_save_current">현재 설정을 프리셋으로 저장</string>
+    <string name="glass_preset_name">프리셋 이름</string>
+    <string name="glass_preset_delete_title">프리셋 삭제</string>
     <string name="glass_preset_default">기본</string>
     <string name="glass_preset_default_subtitle">Zenith 기본 글래스</string>
 

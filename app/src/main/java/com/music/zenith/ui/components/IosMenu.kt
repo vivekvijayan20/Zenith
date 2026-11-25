@@ -457,6 +457,8 @@ fun <T : Any> IosMenuPopover(
     frostAlpha: Float? = null,
     /** Shifts an [IosMenuPlacement.AboveStart] panel sideways from the anchor's leading edge; negative is left. */
     startOffset: Dp = 0.dp,
+    /** Kecepatan fade-in panel saat morph; null memakai bawaan. Makin kecil makin halus dari tombol. */
+    morphAlphaRamp: Float? = null,
     /** Panel lebih pendek: padding atas-bawah panel dikurangi. */
     compact: Boolean = false,
     content: @Composable (T) -> Unit,
@@ -482,7 +484,9 @@ fun <T : Any> IosMenuPopover(
     val progress = remember { Animatable(0f) }
     // The same window morph the alerts use: the panel grows out of the ⋮ or ⋯
     // that opened it and folds back into it.
-    val morphSpec = remember { MacOSPopupSpec() }
+    val morphSpec = remember(morphAlphaRamp) {
+        if (morphAlphaRamp == null) MacOSPopupSpec() else MacOSPopupSpec(alphaRamp = morphAlphaRamp)
+    }
     LaunchedEffect(open) {
         if (open) {
             // The opening frame is the heaviest the menu has: every row

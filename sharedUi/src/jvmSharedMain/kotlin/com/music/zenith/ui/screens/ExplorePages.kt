@@ -31,6 +31,11 @@ import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,6 +57,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import com.music.zenith.data.model.CARD_ART_PX
+import com.music.zenith.data.model.artworkAt
+import com.music.zenith.ui.components.SearchPlayingBars
+import com.music.zenith.ui.components.longPressMenuClickable
+import com.music.zenith.ui.components.thumbnailBorder
 import com.music.zenith.data.model.HomeShelf
 import com.music.zenith.data.model.ShelfItem
 import com.music.zenith.data.model.Song
@@ -60,6 +76,9 @@ import com.music.zenith.ui.components.MessageState
 import com.music.zenith.ui.components.PAGE_GUTTER
 import com.music.zenith.ui.components.feedSkeleton
 import com.music.zenith.ui.components.instantPressClickable
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.foundation.layout.BoxWithConstraints
+import com.music.zenith.ui.components.ShelfRow
 
 /** The countries YouTube Music publishes charts for; "ZZ" is Global. */
 val CHART_COUNTRY_CODES: List<String> = listOf(
@@ -72,6 +91,18 @@ val CHART_COUNTRY_CODES: List<String> = listOf(
 
 internal fun chartCountryName(code: String): String =
     if (code == "ZZ") "Global" else java.util.Locale("", code).displayCountry.ifBlank { code }
+
+/** One row of the Charts country list. */
+data class ChartCountryOption(val code: String, val name: String)
+
+/** The Charts country list for a popup: Global first, then the rest alphabetically. */
+fun chartCountryOptions(): List<ChartCountryOption> {
+    val rest = CHART_COUNTRY_CODES
+        .filter { it != "ZZ" }
+        .map { ChartCountryOption(it, chartCountryName(it)) }
+        .sortedBy { it.name }
+    return listOf(ChartCountryOption("ZZ", chartCountryName("ZZ"))) + rest
+}
 
 /** New releases, Charts and Moods & genres as three square cards, laid out at the foot of the New tab. */
 @Composable
@@ -126,7 +157,7 @@ private fun ShortcutCard(
         verticalArrangement = Arrangement.SpaceBetween,
         modifier = modifier
             .aspectRatio(1f)
-            .instantPressClickable(shape = shape, onClick = onClick)
+            .instantPressClickable(shape = shape, onClick = onClick, forgiving = true)
             .clip(shape)
             .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f), shape)
             .padding(16.dp),
@@ -191,6 +222,300 @@ private fun LazyListScope.shelfPageItems(
     }
 }
 
+/** One square cover with title and credit underneath, for the New releases grid. */
+@Composable
+private fun ReleaseGridCard(
+    item: ShelfItem,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    onLongPress: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = modifier.longPressMenuClickable(onClick = onClick, onLongClick = onLongPress),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(shape)
+                .thumbnailBorder(shape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            AsyncImage(
+                model = item.thumbnailUrl.artworkAt(CARD_ART_PX),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (isCurrent && isPlaying) SearchPlayingBars(Modifier.align(Alignment.Center))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = item.title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = if (isCurrent) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = localizeCardSubtitle(item.subtitle),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * New releases, Apple Music style: albums and singles as a two-column grid of
+ * covers, tracks and artists as tidy rows, everything else as the usual shelves.
+ */
+private fun LazyListScope.newReleasesPageItems(
+    state: UiState<List<HomeShelf>>,
+    onRetry: () -> Unit,
+    onShelfItemClick: (ShelfItem, String) -> Unit,
+    onShelfItemLongPress: ((ShelfItem) -> Unit)?,
+    currentSong: Song?,
+    isPlaying: Boolean,
+) {
+    when (state) {
+        UiState.Loading -> feedSkeleton()
+        is UiState.Error -> item(key = "new-releases-error") {
+            MessageState(
+                state.message,
+                actionLabel = stringResource(Res.string.retry),
+                onAction = onRetry,
+            )
+        }
+        is UiState.Success -> splitNewReleasesHero(state.data).second.forEachIndexed { shelfIndex, shelf ->
+            val shelfKey = "new-releases:$shelfIndex:${shelf.title}"
+            val artists = isChartArtistShelf(shelf)
+            val grid = !artists &&
+                shelf.layout == com.music.zenith.data.model.ShelfLayout.CARDS &&
+                shelf.items.isNotEmpty() &&
+                shelf.items.none { it.isVideo }
+            if (artists || isChartTrackShelf(shelf)) {
+                item(key = "$shelfKey:header") {
+                    SectionHeader(shelf.title, shelf.subtitle)
+                }
+                itemsIndexed(
+                    shelf.items,
+                    key = { index, item -> "$shelfKey:${item.browseId ?: item.videoId}:$index" },
+                    contentType = { _, _ -> "release-row" },
+                ) { index, item ->
+                    val current = !artists && item.videoId != null &&
+                        item.videoId == currentSong?.videoId
+                    ChartRankRow(
+                        rank = index + 1,
+                        item = item,
+                        round = artists,
+                        isCurrent = current,
+                        isPlaying = current && isPlaying,
+                        showDivider = index < shelf.items.lastIndex,
+                        showRank = false,
+                        onClick = { onShelfItemClick(item, shelf.title) },
+                        onLongPress = onShelfItemLongPress?.let { { it(item) } },
+                    )
+                }
+                item(key = "$shelfKey:end") { Spacer(Modifier.height(26.dp)) }
+            } else if (grid) {
+                item(key = "$shelfKey:header") {
+                    SectionHeader(shelf.title, shelf.subtitle)
+                }
+                item(key = "$shelfKey:grid", contentType = "release-grid") {
+                    ReleaseGridShelf(
+                        shelf = shelf,
+                        onItemClick = { onShelfItemClick(it, shelf.title) },
+                        onItemLongPress = onShelfItemLongPress,
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                    )
+                }
+                item(key = "$shelfKey:end") { Spacer(Modifier.height(14.dp)) }
+            } else if (shelf.layout == com.music.zenith.data.model.ShelfLayout.VIDEO) {
+                item(key = "$shelfKey:header") {
+                    SectionHeader(shelf.title, shelf.subtitle)
+                }
+                item(key = "$shelfKey:video", contentType = "release-video") {
+                    ReleaseVideoShelf(
+                        shelf = shelf,
+                        onItemClick = { onShelfItemClick(it, shelf.title) },
+                        onItemLongPress = onShelfItemLongPress,
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                    )
+                }
+                item(key = "$shelfKey:end") { Spacer(Modifier.height(26.dp)) }
+            } else {
+                item(key = shelfKey) {
+                    if (shelf.layout == com.music.zenith.data.model.ShelfLayout.LIST) {
+                        RecentShelf(
+                            shelf = shelf,
+                            onItemClick = { onShelfItemClick(it, shelf.title) },
+                            onItemLongPress = onShelfItemLongPress,
+                            currentSong = currentSong,
+                            isPlaying = isPlaying,
+                        )
+                    } else {
+                        Shelf(
+                            shelf = shelf,
+                            onItemClick = { onShelfItemClick(it, shelf.title) },
+                            onItemLongPress = onShelfItemLongPress,
+                            currentSong = currentSong,
+                            isPlaying = isPlaying,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Splits off the two cards that lead the page. YouTube's own leading shelf (no heading,
+ * so it arrives titled "For you") is used when present; otherwise the first two covers
+ * of the first album grid take its place.
+ */
+private fun splitNewReleasesHero(
+    data: List<HomeShelf>,
+): Pair<List<ShelfItem>, List<HomeShelf>> {
+    val cards = com.music.zenith.data.model.ShelfLayout.CARDS
+    val lead = data.firstOrNull()
+    if (lead != null && lead.title == "For you" && lead.layout == cards &&
+        lead.items.isNotEmpty() && lead.items.none { it.isVideo } && !isChartArtistShelf(lead)
+    ) {
+        return lead.items.take(2) to data.drop(1)
+    }
+    val gridIndex = data.indexOfFirst { shelf ->
+        !isChartArtistShelf(shelf) && !isChartTrackShelf(shelf) &&
+            shelf.layout == cards && shelf.items.isNotEmpty() && shelf.items.none { it.isVideo }
+    }
+    if (gridIndex < 0) return emptyList<ShelfItem>() to data
+    val source = data[gridIndex]
+    val rest = source.items.drop(2)
+    val shelves = data.toMutableList().apply {
+        if (rest.isEmpty()) removeAt(gridIndex) else this[gridIndex] = source.copy(items = rest)
+    }
+    return source.items.take(2) to shelves
+}
+
+/** The two leading cards, side by side, with no heading above them. */
+@Composable
+private fun NewReleasesHero(
+    items: List<ShelfItem>,
+    onItemClick: (ShelfItem, String) -> Unit,
+    onItemLongPress: ((ShelfItem) -> Unit)?,
+    currentSong: Song?,
+    isPlaying: Boolean,
+) {
+    val title = stringResource(Res.string.shelf_new_releases)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PAGE_GUTTER)
+            .padding(bottom = 26.dp),
+    ) {
+        items.forEach { card ->
+            val current = card.videoId != null && card.videoId == currentSong?.videoId
+            ReleaseGridCard(
+                item = card,
+                isCurrent = current,
+                isPlaying = current && isPlaying,
+                onClick = { onItemClick(card, title) },
+                onLongPress = onItemLongPress?.let { { it(card) } },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (items.size < 2) Spacer(Modifier.weight(1f))
+    }
+}
+
+/** Albums & singles: two rows of covers that scroll sideways together, the next column peeking in. */
+@Composable
+private fun ReleaseGridShelf(
+    shelf: HomeShelf,
+    onItemClick: (ShelfItem) -> Unit,
+    onItemLongPress: ((ShelfItem) -> Unit)?,
+    currentSong: Song?,
+    isPlaying: Boolean,
+) {
+    val columns = remember(shelf.items) { shelf.items.chunked(2) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val cardWidth = (maxWidth - PAGE_GUTTER - 64.dp) / 2
+        ShelfRow(
+            state = rememberShelfListState("new-releases:grid:${shelf.title}"),
+            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            itemsIndexed(
+                columns,
+                key = { index, _ -> "column:$index" },
+                contentType = { _, _ -> "release-grid-column" },
+            ) { _, pair ->
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.width(cardWidth),
+                ) {
+                    pair.forEach { card ->
+                        val current = card.videoId != null && card.videoId == currentSong?.videoId
+                        ReleaseGridCard(
+                            item = card,
+                            isCurrent = current,
+                            isPlaying = current && isPlaying,
+                            onClick = { onItemClick(card) },
+                            onLongPress = onItemLongPress?.let { { it(card) } },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Music videos: wide 16:9 cards in one sideways row, the next card peeking in. */
+@Composable
+private fun ReleaseVideoShelf(
+    shelf: HomeShelf,
+    onItemClick: (ShelfItem) -> Unit,
+    onItemLongPress: ((ShelfItem) -> Unit)?,
+    currentSong: Song?,
+    isPlaying: Boolean,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val cardWidth = maxWidth - PAGE_GUTTER - 33.dp
+        ShelfRow(
+            state = rememberShelfListState("new-releases:video:${shelf.title}"),
+            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            itemsIndexed(
+                shelf.items,
+                key = { index, item -> "video:${item.videoId ?: item.browseId}:$index" },
+                contentType = { _, _ -> "release-video-card" },
+            ) { _, item ->
+                val current = item.videoId != null && item.videoId == currentSong?.videoId
+                VideoShelfCard(
+                    item = item,
+                    onClick = { onItemClick(item) },
+                    onLongPress = onItemLongPress?.let { { it(item) } },
+                    modifier = Modifier.width(cardWidth),
+                    aspect = 16f / 9f,
+                    isCurrent = current,
+                    isPlaying = current && isPlaying,
+                )
+            }
+        }
+    }
+}
+
 /** The New releases page. Its title lives in the top bar, like the other pushed pages. */
 @Composable
 fun NewReleasesPage(
@@ -211,15 +536,218 @@ fun NewReleasesPage(
         contentPadding = contentPadding,
         modifier = modifier.fillMaxSize(),
     ) {
-        shelfPageItems(
+        item(key = "new-releases-top") { Spacer(Modifier.height(8.dp)) }
+        (state as? UiState.Success)?.let { loaded ->
+            val hero = splitNewReleasesHero(loaded.data).first
+            if (hero.isNotEmpty()) {
+                item(key = "new-releases-hero") {
+                    NewReleasesHero(
+                        items = hero,
+                        onItemClick = onShelfItemClick,
+                        onItemLongPress = onShelfItemLongPress,
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                    )
+                }
+            }
+        }
+        newReleasesPageItems(
             state = state,
-            keyPrefix = "new-releases",
             onRetry = onRetry,
             onShelfItemClick = onShelfItemClick,
             onShelfItemLongPress = onShelfItemLongPress,
             currentSong = currentSong,
             isPlaying = isPlaying,
         )
+    }
+}
+
+/** A chart shelf that lists artists (no track behind any row), shown as a ranked list. */
+private fun isChartArtistShelf(shelf: HomeShelf): Boolean =
+    shelf.items.isNotEmpty() &&
+        shelf.items.all { it.videoId == null && it.browseId?.startsWith("UC") == true }
+
+/** A chart shelf of plain tracks (no videos), shown as a ranked list. */
+private fun isChartTrackShelf(shelf: HomeShelf): Boolean =
+    shelf.layout != com.music.zenith.data.model.ShelfLayout.VIDEO &&
+        shelf.items.size >= 3 &&
+        shelf.items.all { it.videoId != null && !it.isVideo }
+
+/**
+ * One ranked chart row, Apple Music style: a big rank number (accented for the
+ * top three), the art, the title and credit, and a chevron on artist rows.
+ */
+@Composable
+private fun ChartRankRow(
+    rank: Int,
+    item: ShelfItem,
+    round: Boolean,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    showDivider: Boolean,
+    showRank: Boolean = true,
+    onClick: () -> Unit,
+    onLongPress: (() -> Unit)?,
+) {
+    val artShape = if (round) CircleShape else RoundedCornerShape(10.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .longPressMenuClickable(onClick = onClick, onLongClick = onLongPress),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+        ) {
+            if (showRank) {
+                Text(
+                    text = rank.toString(),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    color = if (rank <= 3) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(36.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+            }
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(artShape)
+                    .thumbnailBorder(artShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                AsyncImage(
+                    model = item.thumbnailUrl.artworkAt(CARD_ART_PX),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (isCurrent && isPlaying) SearchPlayingBars(Modifier.align(Alignment.Center))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = localizeCardSubtitle(item.subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (round) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+        if (showDivider) {
+            HorizontalDivider(
+                modifier = Modifier.padding(
+                    start = PAGE_GUTTER + if (showRank) 48.dp else 70.dp,
+                    end = PAGE_GUTTER,
+                ),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+            )
+        }
+    }
+}
+
+/**
+ * The Charts shelves: artist and track charts as ranked lists, everything else
+ * (playlist charts, video charts) as the usual card shelves.
+ */
+private fun LazyListScope.chartsPageItems(
+    state: UiState<List<HomeShelf>>,
+    onRetry: () -> Unit,
+    onShelfItemClick: (ShelfItem, String) -> Unit,
+    onShelfItemLongPress: ((ShelfItem) -> Unit)?,
+    currentSong: Song?,
+    isPlaying: Boolean,
+) {
+    when (state) {
+        UiState.Loading -> feedSkeleton()
+        is UiState.Error -> item(key = "charts-error") {
+            MessageState(
+                state.message,
+                actionLabel = stringResource(Res.string.retry),
+                onAction = onRetry,
+            )
+        }
+        is UiState.Success -> state.data
+            .withIndex()
+            .sortedBy { (_, shelf) ->
+                when {
+                    isChartArtistShelf(shelf) -> 2
+                    isChartTrackShelf(shelf) -> 1
+                    else -> 0
+                }
+            }
+            .forEach { (shelfIndex, shelf) ->
+            val shelfKey = "charts:$shelfIndex:${shelf.title}"
+            val artists = isChartArtistShelf(shelf)
+            val rows = if (artists) shelf.items.take(4) else shelf.items
+            if (artists || isChartTrackShelf(shelf)) {
+                item(key = "$shelfKey:header") {
+                    SectionHeader(shelf.title, shelf.subtitle)
+                }
+                itemsIndexed(
+                    rows,
+                    key = { index, item -> "$shelfKey:${item.browseId ?: item.videoId}:$index" },
+                    contentType = { _, _ -> "chart-rank-row" },
+                ) { index, item ->
+                    val current = !artists && item.videoId != null &&
+                        item.videoId == currentSong?.videoId
+                    ChartRankRow(
+                        rank = index + 1,
+                        item = item,
+                        round = artists,
+                        isCurrent = current,
+                        isPlaying = current && isPlaying,
+                        showDivider = index < rows.lastIndex,
+                        onClick = { onShelfItemClick(item, shelf.title) },
+                        onLongPress = onShelfItemLongPress?.let { { it(item) } },
+                    )
+                }
+                item(key = "$shelfKey:end") { Spacer(Modifier.height(26.dp)) }
+            } else {
+                item(key = shelfKey) {
+                    if (shelf.layout == com.music.zenith.data.model.ShelfLayout.LIST) {
+                        RecentShelf(
+                            shelf = shelf,
+                            onItemClick = { onShelfItemClick(it, shelf.title) },
+                            onItemLongPress = onShelfItemLongPress,
+                            currentSong = currentSong,
+                            isPlaying = isPlaying,
+                        )
+                    } else {
+                        Shelf(
+                            shelf = shelf,
+                            onItemClick = { onShelfItemClick(it, shelf.title) },
+                            onItemLongPress = onShelfItemLongPress,
+                            currentSong = currentSong,
+                            isPlaying = isPlaying,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -238,16 +766,41 @@ fun ChartsPage(
     isPlaying: Boolean,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
+    /** Draws the country opener in place of the built-in pill; used together with [onCountryMenu]. */
+    countryButton: (@Composable (label: String, onClick: (Rect) -> Unit) -> Unit)? = null,
+    /** Asked to open the country popup from the opener's bounds; the host draws the popup. */
+    onCountryMenu: ((Rect) -> Unit)? = null,
+    /**
+     * Draws the country picker as one box that grows into its own dropdown. It is placed over
+     * the list at the spot of the first row, so opening it never pushes the shelves around.
+     */
+    countryDropdown: (@Composable (
+        expanded: Boolean,
+        onExpandedChange: (Boolean) -> Unit,
+        onPick: (String) -> Unit,
+    ) -> Unit)? = null,
 ) {
     LaunchedEffect(Unit) { onLoad() }
     var picking by remember { mutableStateOf(false) }
+    var dropdownOpen by remember { mutableStateOf(false) }
+    Box(modifier.fillMaxSize()) {
     LazyColumn(
         state = listState,
         contentPadding = contentPadding,
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
     ) {
         item(key = "charts-country") {
-            Row(
+            if (countryDropdown != null) {
+                Spacer(Modifier.padding(top = 8.dp, bottom = 22.dp).size(width = 1.dp, height = 42.dp))
+            } else if (countryButton != null && onCountryMenu != null) {
+                Box(
+                    Modifier
+                        .padding(horizontal = PAGE_GUTTER)
+                        .padding(top = 8.dp, bottom = 22.dp),
+                ) {
+                    countryButton(chartCountryName(country), onCountryMenu)
+                }
+            } else Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(horizontal = PAGE_GUTTER)
@@ -273,9 +826,8 @@ fun ChartsPage(
                 )
             }
         }
-        shelfPageItems(
+        chartsPageItems(
             state = state,
-            keyPrefix = "charts",
             onRetry = onRetry,
             onShelfItemClick = onShelfItemClick,
             onShelfItemLongPress = onShelfItemLongPress,
@@ -283,7 +835,35 @@ fun ChartsPage(
             isPlaying = isPlaying,
         )
     }
-    if (picking) {
+        if (countryDropdown != null) {
+            val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+            LaunchedEffect(atTop) { if (!atTop) dropdownOpen = false }
+            if (dropdownOpen) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) { detectTapGestures { dropdownOpen = false } },
+                )
+            }
+            if (atTop) {
+                Box(
+                    Modifier.offset {
+                        IntOffset(
+                            PAGE_GUTTER.roundToPx(),
+                            contentPadding.calculateTopPadding().roundToPx() + 8.dp.roundToPx() -
+                                listState.firstVisibleItemScrollOffset,
+                        )
+                    },
+                ) {
+                    countryDropdown(dropdownOpen, { dropdownOpen = it }) { code ->
+                        dropdownOpen = false
+                        if (code != country) onCountryChange(code)
+                    }
+                }
+            }
+        }
+    }
+    if (picking && (countryButton == null || onCountryMenu == null)) {
         ChartCountrySheet(
             selected = country,
             onPick = { code ->

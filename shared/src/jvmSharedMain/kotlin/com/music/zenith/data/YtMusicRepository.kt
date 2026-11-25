@@ -406,7 +406,7 @@ object YtMusicRepository {
 
     /** One country's charts page; "ZZ" is Global. */
     suspend fun chartShelves(country: String): Result<List<HomeShelf>> = call("charts:$country") {
-        InnertubeParser.parseHome(Innertube.browseCharts(country)).filter { it.items.isNotEmpty() }
+        InnertubeParser.parseChartShelves(Innertube.browseCharts(country)).filter { it.items.isNotEmpty() }
     }
 
     /** The server-defined mood and genre categories shown as the Search tab's categories. */

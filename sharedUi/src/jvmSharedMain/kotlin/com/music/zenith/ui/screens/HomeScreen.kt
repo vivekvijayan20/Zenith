@@ -1638,6 +1638,7 @@ fun VideoShelfCard(
     onClick: () -> Unit,
     onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier.width(VIDEO_CARD_WIDTH),
+    aspect: Float = VIDEO_ASPECT,
     isCurrent: Boolean = false,
     isPlaying: Boolean = false,
     titleColor: Color = MaterialTheme.colorScheme.onBackground,
@@ -1652,7 +1653,7 @@ fun VideoShelfCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(VIDEO_ASPECT)
+                .aspectRatio(aspect)
                 .clip(RoundedCornerShape(12.dp))
                 .thumbnailBorder(RoundedCornerShape(12.dp))
                 .background(placeholderColor),

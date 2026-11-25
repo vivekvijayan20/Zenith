@@ -240,8 +240,10 @@ object PlaylistSync {
                     }
                     val record = Downloads.collections.value[id] ?: continue
                     val browseId = syncableBrowseId(record) ?: continue
-                    // Its own pass below while that setting is on.
-                    if (browseId == YtMusicRepository.LIKED_MUSIC && AppSettings.downloadLikedSongs.value) continue
+                    // Liked Music has its own pass below, run only while its own
+                    // setting is on. A record left over from earlier must not let
+                    // the playlist sync keep downloading new likes.
+                    if (browseId == YtMusicRepository.LIKED_MUSIC) continue
                     val listing = readWholePlaylist(
                         first = { YtMusicRepository.browseSongs(browseId) },
                         more = { YtMusicRepository.moreSongs(it) },

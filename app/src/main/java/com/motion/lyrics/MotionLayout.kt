@@ -44,8 +44,18 @@ internal fun buildMotionLayout(
     var ce = bi.next()
     while (ce != android.icu.text.BreakIterator.DONE) {
         if (!text[cs].isWhitespace()) {
-            starts.add(cs)
-            ends.add(ce)
+            // Aksara bersambung (Arab, Syriac): huruf tidak boleh digambar sendiri-sendiri,
+            // bentuknya berubah jika terpisah. Satu kata tetap satu unit animasi.
+            val joinsPrevious = starts.isNotEmpty() &&
+                ends[ends.size - 1] == cs &&
+                isCursiveChar(text[cs]) &&
+                isCursiveChar(text[starts[starts.size - 1]])
+            if (joinsPrevious) {
+                ends[ends.size - 1] = ce
+            } else {
+                starts.add(cs)
+                ends.add(ce)
+            }
         }
         cs = ce
         ce = bi.next()
@@ -86,4 +96,12 @@ internal fun buildMotionLayout(
     return MotionLayout(
         result, n, charIndex, charLen, wordIndex, lineIndex, l, t, r, b, gy, rtl, glyphs.toTypedArray()
     )
+}
+
+/** Huruf dari aksara yang bentuknya bergantung pada huruf di sebelahnya (Arab, Syriac). */
+internal fun isCursiveChar(ch: Char): Boolean {
+    if (ch.code < 0x0590) return false
+    val script = java.lang.Character.UnicodeScript.of(ch.code)
+    return script == java.lang.Character.UnicodeScript.ARABIC ||
+        script == java.lang.Character.UnicodeScript.SYRIAC
 }

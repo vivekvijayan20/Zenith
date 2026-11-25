@@ -248,7 +248,8 @@ object EmbeddedLyrics {
         }
         val idLen = if (version == 2) 3 else 4
         val headLen = if (version == 2) 6 else 10
-        var plain: String? = null
+        var wordTimed: String? = null
+        val found = ArrayList<String>()
         while (pos >= 0 && pos + headLen <= body.size && body[pos].toInt() != 0) {
             val id = String(body, pos, idLen, Charsets.ISO_8859_1)
             val size = when (version) {
@@ -276,18 +277,24 @@ object EmbeddedLyrics {
                 if (frameFlags and 0x0002 != 0) data = deunsync(data)
             }
             when (id) {
-                "USLT", "ULT" -> if (plain == null) plain = id3Lyrics(data)
+                "USLT", "ULT" -> id3Lyrics(data)?.let { found += it }
                 "TXXX", "TXX" -> {
                     val (name, value) = id3UserText(data) ?: continue
                     if (value.isBlank()) continue
-                    when (name.uppercase()) {
-                        WORD_LYRICS_FIELD -> return value
-                        "LYRICS", "UNSYNCEDLYRICS" -> if (plain == null) plain = value
+                    val key = name.uppercase()
+                    when {
+                        key == WORD_LYRICS_FIELD -> return value
+                        key == "ELRC" -> if (wordTimed == null && hasStamps(value)) wordTimed = value
+                        key in LYRIC_FIELDS -> found += value
                     }
                 }
             }
         }
-        return plain?.takeIf { it.isNotBlank() }
+        // A tagger can write several lyric fields, and the first one is not
+        // always the synced one: an unsynced copy has no stamps and parses to
+        // nothing. Word-timed first, then any field with stamps, then plain.
+        return (wordTimed ?: found.firstOrNull(::hasStamps) ?: found.firstOrNull())
+            ?.takeIf { it.isNotBlank() }
     }
 
     /** `USLT`: encoding, language(3), descriptor, then the lyric text. */
@@ -437,9 +444,10 @@ object EmbeddedLyrics {
         pos += vendor
         val count = u32() ?: return null
         var plain: String? = null
+        var synced: String? = null
         repeat(count.coerceAtMost(4_096)) {
-            val length = u32() ?: return plain
-            if (length < 0 || pos + length > end) return plain
+            val length = u32() ?: return synced ?: plain
+            if (length < 0 || pos + length > end) return synced ?: plain
             val entry = String(bytes, pos, length, Charsets.UTF_8)
             pos += length
             val name = entry.substringBefore('=').uppercase()
@@ -447,9 +455,12 @@ object EmbeddedLyrics {
             // This app's own field wins outright; the standard one is held in
             // case it turns out to be the only one there.
             if (name == WORD_LYRICS_FIELD && value.isNotBlank()) return value
-            if ((name == "LYRICS" || name == "UNSYNCEDLYRICS") && plain == null && value.isNotBlank()) plain = value
+            if (name in LYRIC_FIELDS && value.isNotBlank()) {
+                if (plain == null) plain = value
+                if (synced == null && hasStamps(value)) synced = value
+            }
         }
-        return plain
+        return synced ?: plain
     }
 
     // ---- Matroska / WebM ----------------------------------------------------
@@ -564,6 +575,10 @@ object EmbeddedLyrics {
     }
 
     private const val FLAC_VORBIS_COMMENT = 4
+    private val LYRIC_FIELDS = setOf("LYRICS", "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "SYNCEDLYRICS", "LRC")
+    private val LRC_STAMP = Regex("""\[\d{1,2}:\d{2}[.:]\d{2,3}]""")
+
+    private fun hasStamps(text: String): Boolean = LRC_STAMP.containsMatchIn(text)
     private val FLAC_MAGIC = "fLaC".toByteArray(Charsets.US_ASCII)
     private val MATROSKA_MAGIC = byteArrayOf(0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte())
     private val DATA_ATOM = "data".toByteArray(Charsets.ISO_8859_1)

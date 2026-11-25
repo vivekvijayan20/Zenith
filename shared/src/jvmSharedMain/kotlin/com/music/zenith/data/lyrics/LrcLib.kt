@@ -98,7 +98,9 @@ object LrcLib {
             if (stamps.isEmpty()) return@flatMap emptySequence()
             val body = line.substring(stamps.last().range.last + 1)
             // Detect the RTL marker that was written by [toEnhancedLrc].
-            val (text, alignment) = stripAlignmentMarker(body)
+            val (marked, alignment) = stripAlignmentMarker(body)
+            // `v1:` / `v2:` voice tag: removed from the text, kept as the singer.
+            val (text, singer) = stripVoiceTag(marked)
             stamps.asSequence().map { match ->
                 val (minutes, seconds, fraction) = match.destructured
                 // Two digits mean centiseconds, three mean milliseconds.
@@ -116,9 +118,9 @@ object LrcLib {
                     text = text.replace(WORD_STAMP, "").trim(),
                     words = parseWordRuns(text),
                     alignment = alignment,
-                )
+                ) to singer
             }
-        }.sortedBy { it.timeMs }.toList()
+        }.sortedBy { it.first.timeMs }.toList().let(::placeVoices)
 
         val kept = all.filterIndexed { index, line ->
             if (!line.isGap) return@filterIndexed true
@@ -153,6 +155,33 @@ object LrcLib {
     }
 
     private const val ALIGNMENT_MARKER = "<R>"
+
+    /**
+     * Strip a leading voice tag (`v1:`, `v2:`, `v1000:`, `v2000:`) from the body
+     * and return the clean body with the voice number. A word stamp sitting in
+     * front of the tag is kept, so `<00:33.22>v1: The` still keeps its timing.
+     */
+    private fun stripVoiceTag(body: String): Pair<String, String?> {
+        val match = VOICE_TAG.find(body) ?: return body to null
+        return (match.groupValues[1] + body.substring(match.range.last + 1)) to match.groupValues[2]
+    }
+
+    /**
+     * Apply the side of each voice: v1 left, v2 right, v1000 (group) left,
+     * v2000 (other) right. Lines without a tag keep their own alignment.
+     */
+    private fun placeVoices(sung: List<Pair<LyricLine, String?>>): List<LyricLine> =
+        sung.map { (line, singer) ->
+            if (singer == null) line else line.copy(alignment = voiceSide(singer))
+        }
+
+    private fun voiceSide(singer: String): LyricAlignment {
+        val number = singer.toIntOrNull() ?: return LyricAlignment.Start
+        if (number == GROUP_VOICE) return LyricAlignment.Start
+        return if (number % 2 == 0) LyricAlignment.End else LyricAlignment.Start
+    }
+
+    private const val GROUP_VOICE = 1000
 
     /**
      * YouTube Music titles are noisy — "(From "Raees")", "| Official Video",
@@ -207,6 +236,7 @@ object LrcLib {
     }
 
     private val STAMP = Regex("""\[(\d{1,2}):(\d{2})[.:](\d{2,3})]""")
+    private val VOICE_TAG = Regex("""^(\s*(?:<\d{1,3}:\d{2}[.:]\d{2,3}>)?)\s*[vV](\d{1,4})\s*:\s*""")
     private val WORD_STAMP = Regex("""<(\d{1,3}):(\d{2})[.:](\d{2,3})>""")
     private val NOISE = Regex(
         """\((?:from|feat\.?|official|lyrical|video|audio|remix)[^)]*\)|\[[^]]*]|""" +

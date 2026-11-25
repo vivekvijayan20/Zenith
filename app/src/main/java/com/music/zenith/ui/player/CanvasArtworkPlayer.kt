@@ -23,6 +23,7 @@ import android.view.TextureView
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
@@ -540,9 +541,18 @@ internal fun AndroidCanvasArtworkPlayer(
         }
     }
 
+    // Klip yang baru siap (surface pertama) melebur masuk perlahan di atas cover statis,
+    // bukan muncul 160ms. Surface pengganti setelah background dan hilangnya klip tetap
+    // cepat supaya cover tidak tertinggal kosong.
     val alpha by animateFloatAsState(
         targetValue = if (rendered) 1f else 0f,
-        animationSpec = if (revealInstantly) snap() else tween(durationMillis = 160),
+        animationSpec = if (revealInstantly) {
+            snap()
+        } else if (rendered && surfaceGeneration == 0) {
+            tween(durationMillis = 480, easing = FastOutSlowInEasing)
+        } else {
+            tween(durationMillis = 160)
+        },
         label = "canvasAlpha",
     )
 
@@ -886,7 +896,7 @@ private fun TextureView.applyContentTransform(
     val matrix = contentMatrix(width, height, clipAspect, contentMode, alignPortraitTop, fill)?.also { m ->
         // Geser Y positif: video ikut membesar ke bawah (zoom dari atas) agar
         // ada gambar yang bisa dilarutkan di bawah dasar klip aslinya.
-        val extra = CanvasFadeTuning.offsetDp.floatValue * resources.displayMetrics.density
+        val extra = CanvasFadeTuning.offset() * resources.displayMetrics.density
         if (extra > 0.5f && alignPortraitTop &&
             contentMode == CanvasContentMode.FIT_PORTRAIT && clipAspect < 1f
         ) {
@@ -990,7 +1000,7 @@ private fun TextureView.setBottomFade(
     endPx: Float?,
     blurPx: Float = 0f,
 ) {
-    val offsetPx = CanvasFadeTuning.offsetDp.floatValue * resources.displayMetrics.density
+    val offsetPx = CanvasFadeTuning.offset() * resources.displayMetrics.density
     val endY = ((endPx ?: bounds.height.toFloat()) + offsetPx)
         .coerceIn(0f, bounds.height.toFloat())
     // The blur lives on the view's own RenderNode, like the fade: a Compose
@@ -1118,9 +1128,9 @@ private class AppliedLook {
     ): Boolean {
         if (clipAspect == aspect && contentMode == mode && alignPortraitTop == alignTop &&
             viewWidth == width && viewHeight == height && fill == fillT &&
-            CanvasFadeTuning.offsetDp.floatValue == offsetT
+            CanvasFadeTuning.offset() == offsetT
         ) return false
-        offsetT = CanvasFadeTuning.offsetDp.floatValue
+        offsetT = CanvasFadeTuning.offset()
         aspect = clipAspect
         mode = contentMode
         alignTop = alignPortraitTop

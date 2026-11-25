@@ -170,6 +170,7 @@ object AudioCache {
 
     /** Enough to cover a hand-over, not enough to keep chasing a lost race. */
     private const val MAX_ATTEMPTS = 4
+    private const val FILL_ATTEMPTS = 40
 
     /**
      * How many tracks past the immediate next one get their stream URL warmed
@@ -585,6 +586,24 @@ object AudioCache {
     }
 
     /**
+     * The CDN URL that filled [key] with JioSaavn's bytes, when the entry holds some.
+     *
+     * JioSaavn URLs are not signed, so the same one can finish the file after a
+     * restart or an expired [StreamChoice]. Asking the race again can hand back
+     * another row, another bitrate or YouTube, which streams a different file
+     * into the middle of an MP4: noise first, then a decode error.
+     */
+    fun keptJioSaavnUrl(key: String?): String? {
+        if (key == null || !::cache.isInitialized) return null
+        return runCatching {
+            if (cache.getCachedSpans(key).isEmpty()) return@runCatching null
+            val meta = cache.getContentMetadata(key)
+            if (meta.get(META_ORIGIN, null as String?) != Origin.JIOSAAVN.name) return@runCatching null
+            meta.get(META_SERVED_URL, null as String?)?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    /**
      * Key of a complete FLAC copy of [videoId] already on disk, whatever the
      * current quality ceiling says. A complete entry is never written to
      * again, so reading it cannot create a mixed-file seam, and the decoder's
@@ -797,7 +816,8 @@ object AudioCache {
                 meta.get(META_MEDIA_ID, null as String?) == mediaId &&
                 has(META_PLAYBACK) == usedByPlayback &&
                 (usedByPlayback || has(META_ANALYSIS)) &&
-                has(META_PLAYED) == played
+                has(META_PLAYED) == played &&
+                (origin != Origin.JIOSAAVN || meta.get(META_SERVED_URL, null as String?) == servedUrl)
             // Every re-open — a seek, a continuation fetch — passes through
             // here. Only write when something would actually change.
             if (tagged && (song == null || has(META_TITLE))) return
@@ -806,6 +826,7 @@ object AudioCache {
                 ContentMetadataMutations().also { mutations ->
                     mutations.set(META_ORIGIN, origin.name)
                     mutations.set(META_MEDIA_ID, mediaId)
+                    if (origin == Origin.JIOSAAVN) mutations.set(META_SERVED_URL, servedUrl)
                     if (usedByPlayback) mutations.set(META_PLAYBACK, "1") else mutations.set(META_ANALYSIS, "1")
                     if (played) mutations.set(META_PLAYED, "1")
                     describe(mutations, song, spec.uri)
@@ -1011,15 +1032,8 @@ object AudioCache {
         if (!::cache.isInitialized || mediaId.isBlank()) return null
         return keysOf(mediaId)
             .filterNot { it.endsWith("#watch") }
-            // Never an addon's own file. Those are kept to be *played* — see
-            // [keepsAddonCopy] — and an addon whose manifest says
-            // `allowDownloads: 0` plays but does not download. Copying its file
-            // out of the cache would be a download it was never asked about,
-            // so the network route decides instead, where that rule is applied.
-            .filterNot { key ->
-                runCatching { cache.getContentMetadata(key).get(META_ORIGIN, null as String?) }
-                    .getOrNull() == Origin.OTHER.name
-            }
+            // An addon's complete file may be copied out too (own addon, so its
+            // `allowDownloads: 0` quota is not applied to the cached copy).
             .mapNotNull { key ->
                 val length = runCatching { ContentMetadata.getContentLength(cache.getContentMetadata(key)) }
                     .getOrDefault(C.LENGTH_UNSET.toLong())
@@ -1170,6 +1184,7 @@ object AudioCache {
 
     private const val META_ORIGIN = "bc_origin"
     private const val META_MEDIA_ID = "bc_media_id"
+    private const val META_SERVED_URL = "bc_served_url"
     private const val META_TITLE = "bc_title"
     private const val META_ARTIST = "bc_artist"
     private const val META_ALBUM = "bc_album"
@@ -1705,6 +1720,28 @@ object AudioCache {
     suspend fun warmRange(uri: Uri, position: Long, length: Long) {
         val key = keyFactory.buildCacheKey(DataSpec(uri))
         fetch(key, uri, position, length)
+    }
+
+    suspend fun fillWhole(uri: Uri) {
+        if (!::cache.isInitialized || upstreamFactory == null) return
+        val key = keyFactory.buildCacheKey(DataSpec(uri))
+        repeat(FILL_ATTEMPTS) {
+            val total = runCatching { ContentMetadata.getContentLength(cache.getContentMetadata(key)) }
+                .getOrDefault(C.LENGTH_UNSET.toLong())
+            if (total > 0) {
+                var position = 0L
+                while (position < total) {
+                    val length = minOf(CHUNK_BYTES, total - position)
+                    if (cache.getCachedBytes(key, position, length) < length) {
+                        fetch(key, uri, position, length)
+                        if (cache.getCachedBytes(key, position, length) < length) break
+                    }
+                    position += length
+                }
+                if (position >= total) return
+            }
+            delay(RETRY_DELAY_MS)
+        }
     }
 
     /**

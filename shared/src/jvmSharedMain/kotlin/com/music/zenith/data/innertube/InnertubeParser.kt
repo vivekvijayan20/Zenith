@@ -209,6 +209,23 @@ object InnertubeParser {
     }
 
     /**
+     * Halaman Charts: sama seperti [parseHome], tetapi shelf bertajuk "video"
+     * (mis. "Video charts") tetap membawa kartu playlist chart-nya. Di Home kartu
+     * itu dibuang, di Charts justru itu kartu yang tampil di atas "Top artists".
+     */
+    fun parseChartShelves(response: JsonObject): List<HomeShelf> {
+        val sections = response.o("contents")
+            .o("singleColumnBrowseResultsRenderer").a("tabs")?.firstOrNull()
+            .o("tabRenderer").o("content").o("sectionListRenderer").a("contents")
+            .orEmpty()
+
+        return sections.mapNotNull { section ->
+            section.o("musicCarouselShelfRenderer")?.let { carouselShelf(it, keepVideoCompilations = true) }
+                ?: section.o("musicShelfRenderer")?.let(::plainShelf)
+        }
+    }
+
+    /**
      * The Moods & genres browse page is a set of navigation-button grids, not
      * a normal carousel. Keep the browse params on every button: they select
      * the playlist shelves that belong to that exact mood or genre.
@@ -280,7 +297,7 @@ object InnertubeParser {
         return out
     }
 
-    private fun carouselShelf(carousel: JsonObject): HomeShelf? {
+    private fun carouselShelf(carousel: JsonObject, keepVideoCompilations: Boolean = false): HomeShelf? {
         val header = carousel.o("header").o("musicCarouselShelfBasicHeaderRenderer")
         val title = header.o("title").runs()
         val strapline = header.o("strapline").runs()
@@ -299,7 +316,11 @@ object InnertubeParser {
         // A shelf billed as videos ("Video charts", "Recommended music videos")
         // keeps the videos it can play and loses the video compilations, which
         // open onto pages with nothing on them.
-        val items = if (VIDEO_WORD.containsMatchIn(title)) parsed.filter { it.videoId != null } else parsed
+        val items = if (!keepVideoCompilations && VIDEO_WORD.containsMatchIn(title)) {
+            parsed.filter { it.videoId != null }
+        } else {
+            parsed
+        }
         if (items.isEmpty()) return null
         val shelfTitle = title.ifBlank { "For you" }
         val fromList = contents.firstOrNull().o("musicResponsiveListItemRenderer") != null

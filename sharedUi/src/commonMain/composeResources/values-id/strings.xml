@@ -49,6 +49,12 @@
     <string name="drag_to_reorder">Seret untuk mengatur ulang urutan</string>
     <string name="failed">Gagal</string>
     <string name="hi_res_lossless">Hi-Res Lossless</string>
+    <string name="quality_info_details">Detail kualitas audio</string>
+    <string name="quality_info_source">Sumber</string>
+    <string name="quality_info_bitrate">Bitrate</string>
+    <string name="quality_info_codec">Codec</string>
+    <string name="quality_info_resolution">Resolusi</string>
+    <string name="quality_info_channels">Kanal</string>
     <string name="high_quality">Kualitas tinggi</string>
     <string name="increase_lyrics_offset">Tambah offset lirik</string>
     <string name="instrumental">Instrumental</string>
