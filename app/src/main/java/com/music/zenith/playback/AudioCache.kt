@@ -888,6 +888,7 @@ object AudioCache {
     suspend fun cachedSongs(): List<CachedSong> = withContext(Dispatchers.IO) {
         if (!::cache.isInitialized) return@withContext emptyList()
         class Entry(
+            val key: String,
             val origin: Origin,
             val meta: ContentMetadata,
             val bytes: Long,
@@ -908,7 +909,7 @@ object AudioCache {
             val touched = spans.maxOf { it.lastTouchTimestamp }
             val length = ContentMetadata.getContentLength(meta)
             val complete = length > 0 && bytes >= length && cache.isCached(key, 0, length)
-            byTrack.getOrPut(mediaId) { mutableListOf() } += Entry(origin, meta, bytes, touched, complete)
+            byTrack.getOrPut(mediaId) { mutableListOf() } += Entry(key, origin, meta, bytes, touched, complete)
         }
         byTrack.map { (mediaId, entries) ->
             fun field(name: String): String? =
@@ -918,6 +919,9 @@ object AudioCache {
             val origin = entries.maxBy { it.bytes }.origin
             val complete = entries.any { it.complete }
             val noted = notedSongs[mediaId]
+            // Salinan addon yang berformat FLAC: bit depth dan sample rate dibaca dari
+            // header file-nya, supaya folder Cache bisa menandai Lossless dan Hi-Res.
+            val flacSpec = if (origin == Origin.OTHER) flacSpecOf(entries.maxBy { it.bytes }.key) else null
             val art = field(META_ART) ?: noted?.thumbnailUrl
                 ?: mediaId.takeIf { SourceRegistry.parseTrackKey(it) == null }
                     ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
@@ -933,6 +937,7 @@ object AudioCache {
                     // it costs on disk, and — when only part of it is there —
                     // that it will need a connection to play to the end.
                     downloadFormat = listOfNotNull(
+                        flacSpec,
                         origin.label,
                         formatBytes(bytes),
                         appContext.getString(R.string.cached_song_partial).takeUnless { complete },
@@ -945,6 +950,33 @@ object AudioCache {
                 complete = complete,
             )
         }.sortedByDescending { it.lastUsedMs }
+    }
+
+    /**
+     * "FLAC 24/96" (bit depth / sample rate in kHz) dibaca dari blok STREAMINFO di
+     * awal entri [key], atau null kalau entri itu bukan aliran FLAC atau kepalanya
+     * belum tersimpan. Salinan yang baru sebagian pun cukup, karena yang dibaca
+     * hanya 22 byte pertama.
+     */
+    private fun flacSpecOf(key: String): String? {
+        val head = runCatching {
+            cache.getCachedSpans(key)
+                .firstOrNull { it.position == 0L && it.isCached }
+                ?.file
+                ?.takeIf { it.exists() }
+        }.getOrNull() ?: return null
+        val b = ByteArray(22)
+        val read = runCatching { head.inputStream().use { it.read(b) } }.getOrDefault(-1)
+        if (read < b.size) return null
+        if (b[0] != 'f'.code.toByte() || b[1] != 'L'.code.toByte() ||
+            b[2] != 'a'.code.toByte() || b[3] != 'C'.code.toByte()
+        ) return null
+        val rate = ((b[18].toInt() and 0xFF) shl 12) or ((b[19].toInt() and 0xFF) shl 4) or
+            ((b[20].toInt() and 0xFF) shr 4)
+        val bits = (((b[20].toInt() and 0x01) shl 4) or ((b[21].toInt() and 0xFF) shr 4)) + 1
+        if (rate <= 0) return "FLAC"
+        val khz = String.format(Locale.ROOT, "%.1f", rate / 1000f).removeSuffix(".0")
+        return "FLAC $bits/$khz"
     }
 
     /** Bytes the song cache occupies on disk right now, across every entry it holds. */

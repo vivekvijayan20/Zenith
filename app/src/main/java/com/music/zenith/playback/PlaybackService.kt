@@ -5971,6 +5971,12 @@ class PlaybackService : MediaLibraryService() {
         val recorded = NerdStats.sourceFor(id)
         if (!recorded.isNullOrBlank()) return recorded
 
+        // 6b. Played straight from a kept addon file: nothing resolved, so no
+        // source was recorded, but the cache entry knows whose bytes it holds.
+        if (uri != null && AudioCache.originOf(uri) == AudioCache.Origin.OTHER) {
+            return "Addon"
+        }
+
         // 7. YouTube video ID
         if (id.length == 11 || uri?.getQueryParameter("v") != null) {
             return "YouTube"

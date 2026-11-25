@@ -847,14 +847,15 @@ private fun SongRowContent(
                 contentAlignment = Alignment.Center,
             ) {
                 if (popular) {
-                    // Penanda lagu populer: titik kecil di gutter kiri nomor.
-                    Box(
-                        Modifier
+                    // Penanda lagu populer: bintang kecil di gutter kiri nomor.
+                    Icon(
+                        imageVector = ZenithIcons.StarFilled,
+                        contentDescription = null,
+                        tint = subtitleColor.copy(alpha = 0.7f),
+                        modifier = Modifier
                             .align(Alignment.CenterStart)
-                            .offset(x = -(PAGE_GUTTER / 2) - 2.dp)
-                            .size(4.dp)
-                            .clip(CircleShape)
-                            .background(subtitleColor.copy(alpha = 0.7f)),
+                            .offset(x = -(PAGE_GUTTER / 2) - 5.dp)
+                            .size(10.dp),
                     )
                 }
                 if (searchPlayingStyle && isCurrent && isPlaying) {

@@ -756,11 +756,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     /** Every rating known for this account: the library's, then this session's. */
     val likeStatuses: StateFlow<Map<String, LikeStatus>> =
-        combine(_library, LikeState.overrides) { library, overrides ->
+        combine(_library, LikeState.overrides, _detailStack) { library, overrides, stack ->
             val liked = (library as? UiState.Success)?.data?.likedSongs
                 ?.associate { it.videoId to LikeStatus.LIKE }
                 .orEmpty()
-            liked + overrides
+            // Lagu di halaman Liked Music yang terbuka (termasuk lanjutan halamannya)
+            // sudah pasti disukai, walau library belum selesai dimuat. Tanpa ini bintang
+            // di player kosong dan tap pertama malah mengirim "like" ke lagu yang sudah
+            // disukai, lalu tap berikutnya membatalkannya.
+            val onLikedPage = HashMap<String, LikeStatus>()
+            for (page in stack) {
+                if (page.browseId != YtMusicRepository.LIKED_MUSIC) continue
+                (page.songs as? UiState.Success)?.data?.forEach { onLikedPage[it.videoId] = LikeStatus.LIKE }
+            }
+            liked + onLikedPage + overrides
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     fun likeStatusOf(videoId: String): LikeStatus =
@@ -3180,7 +3189,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // tracks already on the device, and showed an error with no
             // connection at all. Its downloaded copy goes up first; the
             // online listing replaces it if and when that arrives.
-            val onDevice = if (localPlaylist == null && remote == null && !browseId.startsWith("local:")) {
+            // Liked Music tidak memakai salinan unduhan sebagai halaman sementara: salinan itu
+            // hanya sebagian kecil dari daftar asli (mis. 8 dari 499) dan membuat halaman
+            // tampil tidak lengkap, berwarna hitam, dengan tombol berbeda. Skeleton tampil
+            // sampai daftar penuh datang; salinan unduhan hanya cadangan saat fetch gagal.
+            val onDevice = if (localPlaylist == null && remote == null && !browseId.startsWith("local:") &&
+                browseId != YtMusicRepository.LIKED_MUSIC
+            ) {
                 downloadedCopyOf(browseId)
             } else {
                 emptyList()
@@ -3267,7 +3282,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 UiState.Success(page.songs.withArtwork(thumbnailUrl ?: artwork))
                             }
                         },
-                        onFailure = { UiState.Error(it.friendly()) },
+                        onFailure = {
+                            // Offline / gagal: Liked Music jatuh ke salinan unduhan.
+                            val offline = if (browseId == YtMusicRepository.LIKED_MUSIC) {
+                                downloadedCopyOf(browseId)
+                            } else {
+                                emptyList()
+                            }
+                            if (offline.isNotEmpty()) UiState.Success(offline) else UiState.Error(it.friendly())
+                        },
                     )
                 }
             }

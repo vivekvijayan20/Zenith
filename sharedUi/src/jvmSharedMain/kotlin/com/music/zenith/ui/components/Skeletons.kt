@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
@@ -359,6 +360,25 @@ fun PinnedGridSkeleton(count: Int) {
 /** The Play / Shuffle pair, which only appears once there is something to play. */
 @Composable
 private fun DetailActionsSkeleton(isArtist: Boolean) {
+    if (!isArtist) {
+        // Sama dengan baris aksi header rilis: Shuffle, Play lebar, tombol ketiga,
+        // lebar maksimal 336dp dan di tengah, supaya tidak bergeser saat daftar tiba.
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            Row(
+                modifier = Modifier
+                    .widthIn(max = 336.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = PAGE_GUTTER + 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ShimmerBox(Modifier.size(50.dp), CircleShape)
+                ShimmerBox(Modifier.weight(1f).height(50.dp), CircleShape)
+                ShimmerBox(Modifier.size(50.dp), CircleShape)
+            }
+        }
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -426,7 +446,7 @@ fun LazyListScope.detailSkeleton(isArtist: Boolean) {
     item(key = "skeleton:detail:actions") {
         Column(Modifier.graphicsLayer { alpha = 0.4f }) {
             DetailActionsSkeleton(isArtist = false)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(18.dp))
         }
     }
     songListSkeleton(count = 8, keyPrefix = "skeleton:detail:song", alpha = 0.4f)

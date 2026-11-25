@@ -30,7 +30,34 @@ import org.jetbrains.compose.resources.stringResource
  */
 enum class SourceQuality { DOLBY_ATMOS, HI_RES_LOSSLESS, LOSSLESS, HIGH_QUALITY }
 
-fun Song.sourceQualityBadge(): SourceQuality? = when (sourceQuality?.uppercase()) {
+fun Song.sourceQualityBadge(): SourceQuality? = declaredQuality() ?: downloadFormatQuality()
+
+/** Lossless atau Hi-Res, untuk hitungan di header folder dan filter kualitas. */
+fun Song.isLosslessQuality(): Boolean = sourceQualityBadge().let {
+    it == SourceQuality.LOSSLESS || it == SourceQuality.HI_RES_LOSSLESS
+}
+
+/**
+ * Kualitas dari teks [Song.downloadFormat] yang ditulis Downloads ("FLAC", "DOLBY")
+ * dan folder Cache ("FLAC 24/96 · Addon · 24 MB": bit depth / sample rate kHz).
+ * Hanya bagian sebelum titik tengah pertama yang dibaca.
+ */
+private fun Song.downloadFormatQuality(): SourceQuality? {
+    val head = downloadFormat?.substringBefore('·')?.trim()?.uppercase() ?: return null
+    return when {
+        head == "DOLBY" -> SourceQuality.DOLBY_ATMOS
+        head == "FLAC" -> SourceQuality.LOSSLESS
+        head.startsWith("FLAC ") -> {
+            val spec = head.removePrefix("FLAC ").split('/')
+            val bits = spec.getOrNull(0)?.toIntOrNull() ?: 0
+            val khz = spec.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+            if (bits > 16 || khz > 48.0) SourceQuality.HI_RES_LOSSLESS else SourceQuality.LOSSLESS
+        }
+        else -> null
+    }
+}
+
+private fun Song.declaredQuality(): SourceQuality? = when (sourceQuality?.uppercase()) {
     "DOLBY" -> SourceQuality.DOLBY_ATMOS
     "HI-RES", "HIRES" -> SourceQuality.HI_RES_LOSSLESS
     // The desktop's local files carry their container here — FLAC, WAV.

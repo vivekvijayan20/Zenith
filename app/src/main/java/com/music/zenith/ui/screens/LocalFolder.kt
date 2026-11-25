@@ -359,6 +359,7 @@ internal fun LazyListScope.localFolderItems(
                     rowBackground = Color.Transparent,
                     // Every row here is on the device already.
                     downloadedTint = null,
+                    showSourceQuality = true,
                     onClick = { songClick(index) },
                     onLongPress = { songHold(song) },
                     onMore = { onSongLongPress(song) },

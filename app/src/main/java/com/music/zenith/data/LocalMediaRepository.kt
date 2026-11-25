@@ -446,6 +446,58 @@ object LocalMediaRepository {
         extraLocalMusic?.invoke(context, songs) ?: songs
     }
 
+    /** Kualitas satu file lokal: [tag] dipakai badge kualitas, [hiRes] untuk tingkat Hi-Res. */
+    private class LocalQuality(val tag: String, val hiRes: Boolean)
+
+    /** Hasil pembacaan per file (path + tanggal ubah), supaya scan ulang tidak membuka file lagi. */
+    private val localQualityCache = java.util.concurrent.ConcurrentHashMap<String, LocalQuality>()
+    private val NO_LOCAL_QUALITY = LocalQuality("", false)
+
+    /**
+     * FLAC dibaca dari blok STREAMINFO di kepala file; DSD (dsf/dff) dari ekstensinya.
+     * Format lain null: MP3, AAC, Opus tidak diberi badge. ALAC di m4a belum dikenali
+     * karena butuh membuka file lewat MediaExtractor, terlalu lambat untuk satu scan.
+     */
+    private fun localQualityOf(name: String, path: String?, dateModified: Long): LocalQuality? {
+        val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        if (ext == "dsf" || ext == "dff") return LocalQuality("LOSSLESS", true)
+        if (ext != "flac") return null
+        if (path.isNullOrBlank()) return LocalQuality("FLAC", false)
+        val found = localQualityCache.getOrPut("$path|$dateModified") {
+            readFlacQuality(path) ?: NO_LOCAL_QUALITY
+        }
+        return found.takeIf { it.tag.isNotEmpty() }
+    }
+
+    private fun readFlacQuality(path: String): LocalQuality? {
+        // Berkas tetap FLAC menurut ekstensinya walau kepalanya tidak terbaca.
+        val plain = LocalQuality("FLAC", false)
+        return runCatching {
+            java.io.RandomAccessFile(path, "r").use { file ->
+                // Tag ID3v2 di depan aliran FLAC: lompati dulu (ukuran 4 byte synchsafe).
+                val id3 = ByteArray(10)
+                file.readFully(id3)
+                var offset = 0L
+                if (id3[0] == 'I'.code.toByte() && id3[1] == 'D'.code.toByte() && id3[2] == '3'.code.toByte()) {
+                    offset = 10L + (((id3[6].toInt() and 0x7F) shl 21) or ((id3[7].toInt() and 0x7F) shl 14) or
+                        ((id3[8].toInt() and 0x7F) shl 7) or (id3[9].toInt() and 0x7F))
+                }
+                val b = ByteArray(22)
+                file.seek(offset)
+                file.readFully(b)
+                if (b[0] != 'f'.code.toByte() || b[1] != 'L'.code.toByte() ||
+                    b[2] != 'a'.code.toByte() || b[3] != 'C'.code.toByte()
+                ) {
+                    return@use plain
+                }
+                val rate = ((b[18].toInt() and 0xFF) shl 12) or ((b[19].toInt() and 0xFF) shl 4) or
+                    ((b[20].toInt() and 0xFF) shr 4)
+                val bits = (((b[20].toInt() and 0x01) shl 4) or ((b[21].toInt() and 0xFF) shr 4)) + 1
+                LocalQuality("FLAC", bits > 16 || rate > 48_000)
+            }
+        }.getOrDefault(plain)
+    }
+
     private val AUDIO_PROJECTION = arrayOf(
         MediaStore.Audio.Media._ID,
         MediaStore.Audio.Media.DISPLAY_NAME,
@@ -491,6 +543,11 @@ object LocalMediaRepository {
             } else {
                 null
             }
+            val quality = LocalMediaRepository.localQualityOf(
+                name = name,
+                path = cursor.getString(data),
+                dateModified = cursor.getLong(dateModified),
+            )
             return Song(
                 videoId = videoIdByUri[contentUri] ?: contentUri,
                 title = songTitle,
@@ -503,6 +560,8 @@ object LocalMediaRepository {
                 localDateAddedSeconds = cursor.getLong(dateAdded),
                 localDateModifiedSeconds = cursor.getLong(dateModified),
                 trackNumber = trackNumber,
+                sourceQuality = quality?.tag,
+                sourceHiRes = quality?.hiRes == true,
             )
         }
     }
