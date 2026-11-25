@@ -3935,7 +3935,7 @@ fun NowPlayingScreen(
                             // half second lying across a list the finger was already
                             // scrolling.
                             .onGloballyPositioned { dismissBandSpace = it }
-                            .pointerInput(showAudioPipeline, showCast, panelScrolling) {
+                            .pointerInput(showAudioPipeline, showCast, panelScrolling, spotifyCanvasPresentation) {
                                 if (showAudioPipeline || showCast || panelScrolling) return@pointerInput
                                 awaitEachGesture {
                                     // Unconsumed on purpose, as the blanket version was:
