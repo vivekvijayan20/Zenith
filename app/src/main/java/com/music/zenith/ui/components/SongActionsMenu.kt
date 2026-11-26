@@ -449,11 +449,13 @@ fun SongActionsMenu(
             onToggleSpatialAudio?.let {
                 ActionRow(
                     icon = SfIcons.SurroundSound,
-                    label = stringResource(
-                        if (spatialAudioOn) R.string.spatial_audio_prefer_off else R.string.spatial_audio_prefer_on,
+                    label = stringResource(R.string.spatial_audio),
+                    value = stringResource(
+                        if (spatialAudioOn) R.string.spatial_audio_state_on else R.string.spatial_audio_state_off,
                     ),
+                    tint = if (spatialAudioOn) palette.accent else null,
                     description = stringResource(R.string.spatial_audio_this_song_only),
-                    accent = palette.accent,
+                    accent = if (spatialAudioOn) palette.accent else palette.onBackgroundVariant,
                     onClick = it,
                 )
             }

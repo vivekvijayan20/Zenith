@@ -146,7 +146,9 @@
     <string name="spatial_audio_atmos_subtitle">Dijeda untuk lagu ini — Dolby Atmos sudah spasial</string>
     <string name="spatial_audio_prefer_off">Pilih Audio Spasial Mati</string>
     <string name="spatial_audio_prefer_on">Pilih Audio Spasial Nyala</string>
-    <string name="spatial_audio_this_song_only">Hanya berlaku untuk lagu ini</string>
+    <string name="spatial_audio_this_song_only">Hanya lagu ini</string>
+    <string name="spatial_audio_state_on">Nyala</string>
+    <string name="spatial_audio_state_off">Mati</string>
     <string name="animated_cover_cellular">Putar sampul animasi lewat data seluler</string>
     <string name="replay">Replay</string>
     <string name="replay_subtitle">Lagu, artis, album, dan genre teratas Anda</string>
@@ -813,6 +815,7 @@
     <string name="addon_url_description">Tempel URL addon — direktori utama atau manifest.json.</string>
 
     <string name="advanced_options">Opsi lanjutan</string>
+    <string name="about_app">Tentang</string>
 
     <string name="automix_mode_balanced">Seimbang</string>
 
@@ -896,6 +899,8 @@
     <string name="legacy_mesh_gradient">Gradien mesh klasik</string>
     <string name="canvas_live_blur_panels">Live blur di lirik &amp; antrean</string>
     <string name="canvas_live_blur_panels_subtitle">Cover animasi tetap berputar di belakangnya. Lebih boros baterai</string>
+    <string name="canvas_panel_default_backdrop">Backdrop default di lirik &amp; antrean</string>
+    <string name="canvas_panel_default_backdrop_subtitle">Pakai mesh klasik atau blur cover, bukan frame terakhir Canvas</string>
 
     <string name="legacy_mesh_gradient_subtitle">Kembalikan efek warna mengalir di belakang pemutar dari v1.5</string>
 

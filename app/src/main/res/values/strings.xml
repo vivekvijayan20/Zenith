@@ -204,7 +204,9 @@
     <string name="spatial_audio_atmos_subtitle">Paused for this track — Dolby Atmos is already spatial</string>
     <string name="spatial_audio_prefer_off">Prefer Spatial Audio Off</string>
     <string name="spatial_audio_prefer_on">Prefer Spatial Audio On</string>
-    <string name="spatial_audio_this_song_only">Applies to this song only</string>
+    <string name="spatial_audio_this_song_only">This song only</string>
+    <string name="spatial_audio_state_on">On</string>
+    <string name="spatial_audio_state_off">Off</string>
     <string name="animated_cover_cellular">Play animated cover over cellular</string>
     <string name="replay">Replay</string>
     <string name="replay_subtitle">Your top songs, artists, albums and genres</string>
@@ -489,6 +491,8 @@
     <string name="legacy_mesh_gradient">Legacy mesh gradient</string>
     <string name="canvas_live_blur_panels">Live blur in lyrics &amp; queue</string>
     <string name="canvas_live_blur_panels_subtitle">Keeps animated covers playing behind them. Uses more battery</string>
+    <string name="canvas_panel_default_backdrop">Default backdrop in lyrics &amp; queue</string>
+    <string name="canvas_panel_default_backdrop_subtitle">Uses the legacy mesh or blurred cover instead of the Canvas\'s last frame</string>
     <string name="legacy_mesh_gradient_subtitle">Brings back the drifting colour blobs behind the player from v1.5</string>
     <string name="animated_cover_art">Animated cover art</string>
     <string name="artist_signatures">Artist signatures</string>
@@ -1273,6 +1277,7 @@
     <string name="lyrics_sparkle_subtitle">Tiny glimmers around held letters in LiquidFlow</string>
 
     <string name="advanced_options">Advanced &amp; experimental options</string>
+    <string name="about_app">About</string>
 
 
 

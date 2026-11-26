@@ -55,6 +55,9 @@ private const val SPLASH_MARK_TO_FONT = 0.83f
  */
 private const val SPLASH_CAP_TO_FONT = 0.72f
 
+/** Small optical drop for the mark, as a share of the word's font size. */
+private const val SPLASH_MARK_NUDGE_TO_FONT = 0.04f
+
 /**
  * A full-screen splash in Apple Music's manner: a red gradient from a lighter
  * top to a deeper bottom, with the mark and its word centred in white. Drawn
@@ -93,12 +96,13 @@ fun AppSplash(
         ) {
             val font = maxWidth * SPLASH_FONT_WIDTH_SHARE
             val capPx = with(LocalDensity.current) { (font * SPLASH_CAP_TO_FONT).toPx() }
+            val nudgePx = with(LocalDensity.current) { (font * SPLASH_MARK_NUDGE_TO_FONT).toPx() }
             if (mark != null) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(font * SPLASH_GAP_TO_FONT),
                 ) {
-                    Box(Modifier.alignBy { (it.measuredHeight + capPx).toInt() / 2 }) {
+                    Box(Modifier.alignBy { ((it.measuredHeight + capPx) / 2 - nudgePx).toInt() }) {
                         mark(font * SPLASH_MARK_TO_FONT)
                     }
                     Text(

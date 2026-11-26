@@ -11,6 +11,7 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -42,6 +43,12 @@ import androidx.compose.ui.Modifier
  */
 val LocalCoverTransitionScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
 val LocalCoverVisibilityScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
+
+/**
+ * True saat halaman ini dikunjungi lagi (kembali dari halaman di atasnya),
+ * sehingga isinya tidak memutar ulang animasi masuk.
+ */
+val LocalPageRevisit = compositionLocalOf { false }
 
 // One tapped card per release rather than a single global. Opening an album and
 // then an artist from it must not make the album's card forget it was the one
@@ -119,6 +126,9 @@ private val CoverEasing = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 @Composable
 fun Modifier.enterReveal(delayMs: Int = 0, rise: Dp = 14.dp): Modifier {
     val visibility = LocalCoverVisibilityScope.current ?: return this
+    // Halaman yang sudah pernah tampil langsung utuh. Tanpa ini tombol, kartu,
+    // dan signature hilang lalu muncul lagi tepat saat cover terbang pulang.
+    if (LocalPageRevisit.current) return this
     val progress by visibility.transition.animateFloat(
         transitionSpec = {
             if (targetState == EnterExitState.Visible) {
@@ -130,6 +140,8 @@ fun Modifier.enterReveal(delayMs: Int = 0, rise: Dp = 14.dp): Modifier {
         label = "enterReveal",
     ) { state -> if (state == EnterExitState.Visible) 1f else 0f }
     return this.graphicsLayer {
+        // Tanpa buffer offscreen, jadi isi yang sedang bergeser tidak terpotong.
+        compositingStrategy = CompositingStrategy.ModulateAlpha
         alpha = progress
         translationY = (1f - progress) * rise.toPx()
     }

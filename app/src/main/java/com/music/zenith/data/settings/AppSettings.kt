@@ -1073,6 +1073,13 @@ object AppSettings {
     val canvasLiveBlurPanels = MutableStateFlow(false)
 
     /**
+     * Behind the lyrics and queue, a full-screen Spotify Canvas normally leaves
+     * a blur of its last frame. On, the player's default backdrop is used
+     * instead: the legacy mesh when that is on, else the blurred cover.
+     */
+    val canvasPanelDefaultBackdrop = MutableStateFlow(false)
+
+    /**
      * Puts v1.5's backdrop back on the player: four quantised blobs drifting
      * behind the whole screen, rather than the artwork's own colours hung off
      * the sleeve's bottom edge.
@@ -1760,6 +1767,7 @@ object AppSettings {
         signatureApiUrl.value = normalizeSignatureApiUrl(prefs.getString(KEY_SIGNATURE_API_URL, "").orEmpty())
         fullBleedArtwork.value = prefs.getBoolean(KEY_FULL_BLEED_ARTWORK, true)
         canvasLiveBlurPanels.value = prefs.getBoolean(KEY_CANVAS_LIVE_BLUR_PANELS, false)
+        canvasPanelDefaultBackdrop.value = prefs.getBoolean(KEY_CANVAS_PANEL_DEFAULT_BACKDROP, false)
         legacyMeshGradient.value = prefs.getBoolean(KEY_LEGACY_MESH_GRADIENT, false)
         lastPlayerScreen.value = runCatching {
             LastPlayerScreen.valueOf(
@@ -2877,6 +2885,11 @@ object AppSettings {
         prefs.edit().putBoolean(KEY_CANVAS_LIVE_BLUR_PANELS, value).apply()
     }
 
+    fun setCanvasPanelDefaultBackdrop(value: Boolean) {
+        canvasPanelDefaultBackdrop.value = value
+        prefs.edit().putBoolean(KEY_CANVAS_PANEL_DEFAULT_BACKDROP, value).apply()
+    }
+
     fun setFullBleedArtwork(value: Boolean) {
         fullBleedArtwork.value = value
         prefs.edit().putBoolean(KEY_FULL_BLEED_ARTWORK, value).apply()
@@ -3626,6 +3639,7 @@ object AppSettings {
     private const val KEY_SIGNATURE_API_URL = "signature_api_url"
     private const val KEY_FULL_BLEED_ARTWORK = "full_bleed_artwork"
     private const val KEY_CANVAS_LIVE_BLUR_PANELS = "canvas_live_blur_panels"
+    private const val KEY_CANVAS_PANEL_DEFAULT_BACKDROP = "canvas_panel_default_backdrop"
     private const val KEY_LEGACY_MESH_GRADIENT = "legacy_mesh_gradient"
     private const val KEY_LAST_PLAYER_SCREEN = "last_player_screen"
     private const val KEY_SYNCED_LYRICS = "synced_lyrics"

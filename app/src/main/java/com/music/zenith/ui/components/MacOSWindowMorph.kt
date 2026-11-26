@@ -268,6 +268,16 @@ internal fun rememberMacOSPopupState(
 }
 
 /**
+ * Android 11 and below: the morph keeps to scale, translation and alpha. Its
+ * per-frame elliptical clip (a new non-simple outline each frame, so a path
+ * clip) and its perspective tilt (a camera-distance rotation on a layer that
+ * is also clipped and composited offscreen) are what these versions' renderer
+ * draws late or not at all, so the popup came in after a long pause or never.
+ * The card clips its own corners, so nothing is lost but the tilt.
+ */
+private val LegacyMorph = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S
+
+/**
  * A rounded rect whose corners are elliptical, so that after the layer's
  * uneven scale they still read as circles of the radius being animated.
  */
@@ -334,11 +344,13 @@ internal fun Modifier.macOSPopupMotion(
         // Clip only while the card is still growing out of its trigger. Once it
         // is open the layer must not clip, or the jelly stretch of the popup
         // inside it is cut off at the card's resting edges.
-        clip = p < 1f
-        shape = MorphRoundedShape(apparent / sx, apparent / sy)
+        if (!LegacyMorph) {
+            clip = p < 1f
+            shape = MorphRoundedShape(apparent / sx, apparent / sy)
 
-        cameraDistance = 16f * density
-        rotationX = spec.foldTilt * rest * (dy / (abs(dy) + b.height * 0.5f))
+            cameraDistance = 16f * density
+            rotationX = spec.foldTilt * rest * (dy / (abs(dy) + b.height * 0.5f))
+        }
     }
 
 /**
@@ -386,14 +398,16 @@ internal fun GraphicsLayerScope.applyMacOSMorph(
 
     alpha = (p * spec.alphaRamp).coerceIn(0f, 1f)
 
-    if (clipToShape) {
+    if (clipToShape && !LegacyMorph) {
         val apparent = lerp(min(origin.width, origin.height) / 2f, cornerRadius, p.coerceIn(0f, 1f))
         clip = p < 1f
         shape = MorphRoundedShape(apparent / sx, apparent / sy)
     }
 
-    cameraDistance = 16f * density
-    rotationX = spec.foldTilt * rest * (dy / (abs(dy) + card.height * 0.5f))
+    if (!LegacyMorph) {
+        cameraDistance = 16f * density
+        rotationX = spec.foldTilt * rest * (dy / (abs(dy) + card.height * 0.5f))
+    }
 }
 
 /**

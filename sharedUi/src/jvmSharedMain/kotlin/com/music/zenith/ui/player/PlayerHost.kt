@@ -274,6 +274,8 @@ interface PlayerSettingsSource {
     val reduceDynamicBlur: StateFlow<Boolean>
     /** Keeps a full-screen Spotify Canvas playing, blurred live, behind the lyrics and queue. */
     val canvasLiveBlurPanels: StateFlow<Boolean>
+    /** Behind the lyrics and queue, the default backdrop (legacy mesh or blurred cover) instead of the Canvas's last frame. */
+    val canvasPanelDefaultBackdrop: StateFlow<Boolean>
     /** Whether Dolby Atmos is both playable on this device and switched on, so the player can show its badge. */
     val dolbyAtmosActive: StateFlow<Boolean>
     val showNerdStats: StateFlow<Boolean>

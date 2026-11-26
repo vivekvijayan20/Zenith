@@ -1270,6 +1270,7 @@ object AudioCache {
                 activeDs = if (scheme == "file" || scheme == "content") {
                     upstreamDs
                 } else {
+                    dropStrandedForeignEntry(dataSpec.uri)
                     settleDirectEntry(dataSpec.uri)
                     cacheDs
                 }
@@ -1364,6 +1365,46 @@ object AudioCache {
         }
     }
 
+    /**
+     * Clears a half-filled entry that an addon or module started and that
+     * nothing in this process remembers any more — a restart, or a
+     * [StreamChoice] that has expired.
+     *
+     * [CacheDataSource] serves the bytes on disk and only calls the resolver
+     * where they run out, and by then the race may hand the rest of the file
+     * to another server: a different rendition spliced into the middle of
+     * the first one, which plays until the seam and then fails. Unlike
+     * YouTube's or JioSaavn's, an addon's URL is not one that can be reused
+     * to finish the file — its continuation requests are refused — so the
+     * only safe way out is to start the entry again from the top.
+     *
+     * Complete entries are never written to again and stay. Nothing is
+     * dropped offline, where the partial bytes are all there is.
+     */
+    private fun dropStrandedForeignEntry(uri: Uri) {
+        if (uri.scheme != "zenith" || uri.authority != "watch") return
+        val videoId = uri.getQueryParameter("v") ?: return
+        if (QualityUpgrade.cacheTag(uri) != null ||
+            uri.getQueryParameter(WATCH_READ_PARAM) != null ||
+            AutomixAnalysisSource.requestsYouTubeOpus(
+                uri.getQueryParameter(AutomixAnalysisSource.OPUS_QUERY_PARAMETER),
+            )
+        ) {
+            return
+        }
+        if (StreamChoice.of(videoId) != null || isOffline()) return
+        val key = keyFactory.buildCacheKey(DataSpec(uri))
+        val stranded = runCatching {
+            cache.getCachedSpans(key).isNotEmpty() &&
+                !isComplete(key) &&
+                cache.getContentMetadata(key).get(META_ORIGIN, null as String?) == Origin.OTHER.name
+        }.getOrDefault(false)
+        if (!stranded) return
+        runCatching { cache.removeResource(key) }
+            .onSuccess { TrackLog.d(TAG, "dropped stranded partial addon copy $key", about = videoId) }
+            .onFailure { TrackLog.d(TAG, "cache entry $key still in use: ${it.message}", about = videoId) }
+    }
+
     /** Clears [key]'s YouTube bytes so an addon's file can fill it from the top. */
     private fun dropYouTubeEntry(key: String, videoId: String) {
         runCatching { cache.removeResource(key) }
@@ -1425,7 +1466,10 @@ object AudioCache {
         val factory = CacheDataSource.Factory()
             .setCache(cache)
             .setUpstreamDataSourceFactory(upstream)
-            .setCacheKeyFactory { videoId }
+            // An entry of its own: the plain `videoId` key can hold an addon's
+            // lossless file (Direct Source), and cutting Opus out of that, or
+            // streaming YouTube into the middle of it, fails the export.
+            .setCacheKeyFactory { "$videoId#share" }
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         return factory to Uri.parse(AutomixAnalysisSource.opusUri(videoId))
     }
@@ -1622,7 +1666,11 @@ object AudioCache {
                     if (addon == null) DirectSourceGate.startedOnYouTube(id, upcoming.target)
                 }
             }
-            fetch(id, 0, PRELOAD_BYTES)
+            // Cek dan tulis harus di key yang sama dengan playback (mis. `#alt`),
+            // bukan di key polos milik salinan Opus untuk analisis Automix.
+            val uri = Uri.parse("zenith://watch?v=$id")
+            val length = if (analysisDownloadFailed(id)) FALLBACK_PRELOAD_BYTES else PRELOAD_BYTES
+            fetch(cacheKeyOf(uri), uri, 0, length, pinKey = true)
         }
     }
 
@@ -2061,8 +2109,8 @@ object AudioCache {
                     )
                 }
                 if (total > 0) recordContentLength(videoId, total)
-                val held = alignmentPrefixBytes(videoId)
-                if (held < MIN_ALIGNMENT_PREFIX_BYTES) {
+                val held = cache.getCachedBytes(videoId, 0, want)
+                if (!hasAnalysisCopy(videoId)) {
                     // The one line that says *this* fetch failed, as opposed to
                     // the read-ahead chatter around it: every cause below
                     // already logs its own message at debug, but nothing said
@@ -2077,7 +2125,7 @@ object AudioCache {
                 }
             } finally {
                 analysisHeadsInFlight.remove(videoId)
-                if (alignmentPrefixBytes(videoId) >= MIN_ALIGNMENT_PREFIX_BYTES) {
+                if (hasAnalysisCopy(videoId)) {
                     analysisHeadFailures.remove(videoId)
                     analysisHeadRetryAt.remove(videoId)
                 } else {
@@ -2114,6 +2162,19 @@ object AudioCache {
      * One resolve, one range, one encoding. [StreamResolver] has the length
      * already, from resolving the stream, so asking first costs nothing.
      */
+    /** Hanya salinan YouTube di key polos yang bisa dipakai analisis, bukan `#alt`. */
+    private fun hasAnalysisCopy(videoId: String): Boolean {
+        val want = analysisHeadWant[videoId] ?: MIN_ALIGNMENT_PREFIX_BYTES
+        val cached = cache.getCachedLength(videoId, 0, want).coerceAtLeast(0L)
+        return cached >= minOf(want, MIN_ALIGNMENT_PREFIX_BYTES)
+    }
+
+    /** True setelah minimal satu unduhan salinan analisis YouTube gagal. */
+    fun analysisDownloadFailed(videoId: String): Boolean = (analysisHeadFailures[videoId] ?: 0) > 0
+
+    /** Awal lagu lossless harus cukup panjang untuk dianalisis saat salinan YouTube gagal. */
+    private const val FALLBACK_PRELOAD_BYTES = 16L * 1024 * 1024
+
     private fun analysisHeadSize(total: Long): Long =
         if (total > 0) minOf(total, MAX_ANALYSIS_TRACK_BYTES) else MAX_ANALYSIS_HEAD_BYTES
 

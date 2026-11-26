@@ -51,7 +51,7 @@ import com.music.zenith.ui.player.MeshPalette
  * shader AGSL (OrganicFluidBackground); tanpa itu dipakai mesh gradient statis.
  */
 val LocalMixCoverBackground =
-    staticCompositionLocalOf<(@Composable (List<Color>, Boolean, Modifier) -> Unit)?> { null }
+    staticCompositionLocalOf<(@Composable (List<Color>, Boolean, Float, Modifier) -> Unit)?> { null }
 
 private val MixCorner = RoundedCornerShape(12.dp)
 
@@ -117,7 +117,7 @@ private fun MixCoverCard(
                 .thumbnailBorder(MixCorner),
         ) {
             if (background != null) {
-                background(palette, motion, Modifier.fillMaxSize())
+                background(palette, motion, mixSeed(item.title), Modifier.fillMaxSize())
             } else {
                 MeshGradientBackground(
                     palette = remember(palette) { MeshPalette(palette.take(4)) },

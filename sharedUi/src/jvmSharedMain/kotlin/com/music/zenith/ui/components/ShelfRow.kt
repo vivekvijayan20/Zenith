@@ -23,9 +23,10 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * What a sideways shelf is wrapped in, on top of the row itself.
@@ -51,6 +52,9 @@ internal class ShelfScrollFlow {
     var scrolling = false
     var forward = false
 
+    /** Counts the moments a scroll (drag and fling) has come to rest; cards still mid-entrance settle on it. */
+    var releases by mutableIntStateOf(0)
+
     private var lastEntryNanos = 0L
     private var wave = 0
 
@@ -67,9 +71,10 @@ internal class ShelfScrollFlow {
 }
 
 private const val SHELF_WAVE_GAP_NANOS = 280_000_000L
-private const val SHELF_STAGGER_STEP_MS = 55L
-private const val SHELF_STAGGER_MAX_SLOT = 3
 private const val SHELF_STAGGER_SHRINK = 0.1f
+
+/** How far a card travels in from the right edge while its entrance follows the finger. */
+private val SHELF_REVEAL_DISTANCE = 120.dp
 private val SHELF_STAGGER_SLIDE = 72.dp
 private val SHELF_STAGGER_LIFT = 10.dp
 
@@ -77,75 +82,103 @@ internal val LocalShelfScrollFlow = staticCompositionLocalOf<ShelfScrollFlow?> {
 
 /**
  * A shelf card's entrance: a card that comes in from the right edge while its
- * row is swiped left slides in, lifts and grows to size on a spring, each card
- * a beat after the one before it.
+ * row is swiped left slides in, lifts and grows to size as it crosses the first
+ * stretch of the row, so it shows at once and follows the finger (and back
+ * again if the swipe reverses) rather than waiting for the scroll to end.
  *
- * Timed rather than tied to the scroll: a fling takes a card past its entrance
- * in a few frames, which left a reveal driven by distance too short to see. And
- * decided as the card reaches the edge rather than as it is composed, so a card
- * built ahead of the swipe still plays it, while one already on screen never
- * does — a tab coming back, a page closing or a swipe to the right shows its
- * cards as they are.
+ * Each card is a little behind the one before it simply by where it sits. When
+ * the scroll comes to rest, a card still part-way in finishes on a spring.
+ * Decided as the card reaches the edge rather than as it is composed, so a
+ * card built ahead of the swipe still plays it, while one already on screen
+ * never does — a tab coming back, a page closing or a swipe to the right shows
+ * its cards as they are.
  */
 @Composable
 fun Modifier.shelfStagger(index: Int): Modifier {
     val flow = LocalShelfScrollFlow.current ?: return this
-    // 1 is the card as it is; below that its entrance is under way.
-    // A card composed mid-swipe starts hidden, so it never flashes at full
-    // strength before its entrance; one composed at rest is already settled.
-    val progress = remember { Animatable(if (flow.scrolling && flow.forward) 0f else 1f) }
-    val scope = rememberCoroutineScope()
+    val revealPx = with(LocalDensity.current) { SHELF_REVEAL_DISTANCE.toPx() }
+    // 1 is the card as it is; below that its entrance is under way. A card
+    // composed mid-swipe starts hidden, so it never flashes at full strength.
+    val driven = remember { mutableFloatStateOf(if (flow.scrolling && flow.forward) 0f else 1f) }
+    // The spring that finishes the entrance once the scroll has let go.
+    val settle = remember { Animatable(1f) }
     // 0: not placed yet. 1: placed beyond the right edge, waiting to come in.
-    // 2: settled, nothing left to decide. Plain, so a frame of the swipe
-    // never recomposes the card.
+    // 2: settled, nothing left to decide. 3: coming in, following the scroll.
+    // Plain, so a frame of the swipe never recomposes the card.
     val phase = remember { IntArray(1) }
+    LaunchedEffect(flow) {
+        snapshotFlow { flow.releases }.collect {
+            if (phase[0] != 3) return@collect
+            phase[0] = 2
+            val from = driven.floatValue
+            if (from < 1f) {
+                settle.snapTo(from)
+                driven.floatValue = 1f
+                settle.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 300f))
+            }
+        }
+    }
     return this
         .onGloballyPositioned { coordinates ->
             if (phase[0] == 2) return@onGloballyPositioned
             val parent = coordinates.parentLayoutCoordinates ?: return@onGloballyPositioned
             val edge = parent.size.width.toFloat()
             val x = coordinates.positionInParent().x
-            if (phase[0] == 0) {
-                if (x >= edge) {
-                    phase[0] = 1
+            fun follow(): Float {
+                val t = ((edge - x) / revealPx).coerceIn(0f, 1f)
+                return t * t * (3f - 2f * t)
+            }
+            fun enter() {
+                val d = follow()
+                if (d >= 1f) {
+                    phase[0] = 2
+                    driven.floatValue = 1f
+                } else {
+                    phase[0] = 3
+                    driven.floatValue = d
+                }
+            }
+            when (phase[0]) {
+                0 -> when {
                     // Hidden before it comes in, so it never shows at full
                     // strength for a frame as it reaches the edge.
-                    scope.launch { progress.snapTo(0f) }
-                } else if (flow.scrolling && flow.forward && x > edge * 0.5f) {
+                    x >= edge -> {
+                        phase[0] = 1
+                        driven.floatValue = 0f
+                    }
                     // A lazy row only places a card once it is already inside
                     // the viewport, so the first placement of a card swiped in
                     // from the right is just under the edge, never beyond it.
-                    phase[0] = 2
-                    val wait = flow.nextWaveSlot().coerceAtMost(SHELF_STAGGER_MAX_SLOT) * SHELF_STAGGER_STEP_MS
-                    scope.launch {
-                        if (progress.value != 0f) progress.snapTo(0f)
-                        delay(wait)
-                        progress.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 300f))
+                    flow.scrolling && flow.forward && x > edge * 0.5f -> enter()
+                    else -> {
+                        phase[0] = 2
+                        driven.floatValue = 1f
                     }
-                } else {
-                    phase[0] = 2
-                    if (progress.value != 1f) scope.launch { progress.snapTo(1f) }
                 }
-                return@onGloballyPositioned
-            }
-            if (x < edge - 1f) {
-                phase[0] = 2
-                if (flow.scrolling && flow.forward) {
-                    val wait = flow.nextWaveSlot().coerceAtMost(SHELF_STAGGER_MAX_SLOT) * SHELF_STAGGER_STEP_MS
-                    scope.launch {
-                        delay(wait)
-                        progress.animateTo(1f, spring(dampingRatio = 0.74f, stiffness = 300f))
+                1 -> if (x < edge - 1f) {
+                    if (flow.scrolling && flow.forward) {
+                        enter()
+                    } else {
+                        phase[0] = 2
+                        driven.floatValue = 1f
                     }
-                } else {
-                    scope.launch { progress.snapTo(1f) }
+                }
+                3 -> if (flow.scrolling) {
+                    val d = follow()
+                    if (d >= 1f) {
+                        phase[0] = 2
+                        driven.floatValue = 1f
+                    } else {
+                        driven.floatValue = d
+                    }
                 }
             }
         }
         .graphicsLayer {
-            val p = progress.value
-            if (p == 1f) return@graphicsLayer
+            val p = minOf(driven.floatValue, settle.value)
+            if (p >= 1f) return@graphicsLayer
             val left = 1f - p
-            alpha = (p * 1.7f).coerceIn(0f, 1f)
+            alpha = (p * 2.5f).coerceIn(0f, 1f)
             translationX = left * SHELF_STAGGER_SLIDE.toPx()
             translationY = left * SHELF_STAGGER_LIFT.toPx()
             val scale = 1f - SHELF_STAGGER_SHRINK * left
@@ -177,6 +210,7 @@ fun ShelfRow(
                 flow.forward = pos > last
                 last = pos
             }
+            if (flow.scrolling && !scrolling) flow.releases++
             flow.scrolling = scrolling
             if (!scrolling) flow.forward = false
         }

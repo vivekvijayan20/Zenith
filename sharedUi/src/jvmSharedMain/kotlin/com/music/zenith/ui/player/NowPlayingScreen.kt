@@ -1978,6 +1978,7 @@ fun NowPlayingScreen(
     // A full-screen Spotify Canvas that stays up, blurred live, behind the lyrics
     // and queue. Only where it can be drawn (Android 12+, dynamic blur not reduced).
     val canvasLiveBlur by PlayerSettings.canvasLiveBlurPanels.collectAsStateWithLifecycle()
+    val panelDefaultBackdrop by PlayerSettings.canvasPanelDefaultBackdrop.collectAsStateWithLifecycle()
     val liveBlurReduced by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     // Frost host is null when dynamic blur is reduced or the platform cannot blur live (below Android 12).
     val frost = if (liveBlurReduced) null else PlayerPlatform.host.rememberPlayerFrost()
@@ -2912,9 +2913,9 @@ fun NowPlayingScreen(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .padding(horizontal = 10.dp, vertical = 8.dp)
-                                    // Faded with the player rather than flown with
-                                    // the sleeve: the cover in the bar has none.
-                                    .graphicsLayer { alpha = if (panelOpen || landscapeFullBleed) 0f else dockFade() },
+                                    // Tampil hanya setelah cover mendarat: selama terbang,
+                                    // cover digambar di atas semuanya dan menutupi teks ini.
+                                    .graphicsLayer { alpha = if (panelOpen || landscapeFullBleed) 0f else headerReveal.value },
                             )
                         }
                     },
@@ -3158,8 +3159,19 @@ fun NowPlayingScreen(
                     canvas?.source == CanvasSource.SPOTIFY && !liveCanvasPanels
                 // Blur frame ditahan utuh selama panel terbuka dan selama collapse
                 // (masuk maupun keluar), tepat di bawah klip yang melebur.
-                val spotifyFrameHold = spotifyFrameOnly && (canvasPanelMesh || collapseStarted) &&
+                // Opsi backdrop default: alas panel adalah mesh legacy / blur cover,
+                // bukan blur frame beku klip. Klip tetap melebur ke sana.
+                val spotifyDefaultBackdrop = spotifyFrameOnly && panelDefaultBackdrop
+                val panelBackdropReady = if (spotifyDefaultBackdrop) {
+                    legacyMesh || fullArtworkBlurImage != null
+                } else {
                     canvasPanelFrameBlur != null
+                }
+                val spotifyFrameHold = spotifyFrameOnly && !spotifyDefaultBackdrop &&
+                    (canvasPanelMesh || collapseStarted) && canvasPanelFrameBlur != null
+                // Selama collapse masuk/keluar, backdrop default ditahan di bawah klip
+                // yang melebur, seperti blur frame beku ditahan.
+                val spotifyDefaultHold = spotifyDefaultBackdrop && collapseStarted
                 val canvasMeshAlpha by animateFloatAsState(
                     targetValue = if (spotifyFrameOnly) {
                         if (spotifyFrameHold) 1f else 0f
@@ -3180,7 +3192,7 @@ fun NowPlayingScreen(
                 // membuat klip hilang mendadak). Saat panel menutup, p() yang memimpin.
                 val spotifyFrameHandoff by animateFloatAsState(
                     targetValue = if (
-                        spotifyFrameOnly && (lyricsOpen || queueOpen) && canvasPanelFrameBlur != null
+                        spotifyFrameOnly && (lyricsOpen || queueOpen) && panelBackdropReady
                     ) 0f else 1f,
                     animationSpec = if (spotifyFrameOnly && (lyricsOpen || queueOpen)) {
                         tween(durationMillis = 240, easing = FastOutSlowInEasing)
@@ -3193,19 +3205,19 @@ fun NowPlayingScreen(
                     canvas?.source == CanvasSource.SPOTIFY && !liveCanvasPanels &&
                     (lyricsOpen || queueOpen)
                 val legacyMeshBackdrop = !tabletArtworkBackdrop &&
-                    (!spotifyCanvasPresentation || spotifyDefaultPanels) &&
+                    (!spotifyCanvasPresentation || spotifyDefaultPanels || spotifyDefaultHold) &&
                     legacyMesh && !canvasPanelMesh
                 val fullArtworkBackdropAlpha by animateFloatAsState(
                     targetValue = if (
                         !legacyMeshBackdrop && !canvasPanelMesh && !spotifyFrameHold &&
                         (tabletArtworkBackdrop || fullArtworkBlurImage != null) &&
-                        (!spotifyCanvasPresentation || lyricsOpen || queueOpen ||
+                        (!spotifyCanvasPresentation || lyricsOpen || queueOpen || spotifyDefaultHold ||
                             mixing || crossfading || clipDimmed || dissolve.fullFrame != null)
                     ) 1f else 0f,
                     // Selagi frame canvas menutup layar, backdrop sudah harus utuh di
                     // bawahnya; kalau masih naik pelan, bagian bawah terlihat gelap
                     // lalu terang saat frame memudar.
-                    animationSpec = if (dissolve.fullFrame != null || spotifyDefaultPanels) {
+                    animationSpec = if (dissolve.fullFrame != null || spotifyDefaultPanels || spotifyDefaultHold) {
                         snap()
                     } else {
                         tween(durationMillis = 360, easing = FastOutSlowInEasing)
@@ -3262,7 +3274,7 @@ fun NowPlayingScreen(
                 }
                 if (canvasMeshAlpha > 0.001f) {
                     FullArtworkBlurBackdrop(
-                        image = if (spotifyFrameOnly) canvasPanelFrameBlur
+                        image = if (spotifyFrameOnly && !spotifyDefaultBackdrop) canvasPanelFrameBlur
                             else canvasPanelFrameBlur ?: fullArtworkBlurImage,
                         modifier = Modifier.graphicsLayer { alpha = canvasMeshAlpha },
                     )
@@ -5247,9 +5259,9 @@ fun NowPlayingScreen(
                                         .padding(horizontal = 10.dp, vertical = 8.dp)
                                         .graphicsLayer {
                                             // Tidak tampil selama cover terbang: cover digambar di
-                                            // atas semuanya dan akan menutupi teks ini.
-                                            val dockShown = ((dockT() - 0.85f) / 0.15f).coerceIn(0f, 1f)
-                                            alpha = (1f - p() * 2f) * spotifyChromeAlpha * dockShown
+                                            // atas semuanya dan akan menutupi teks ini. headerReveal
+                                            // baru naik setelah sheet terbuka penuh (cover sudah mendarat).
+                                            alpha = (1f - p() * 2f) * spotifyChromeAlpha * headerReveal.value
                                         },
                                 )
                             }

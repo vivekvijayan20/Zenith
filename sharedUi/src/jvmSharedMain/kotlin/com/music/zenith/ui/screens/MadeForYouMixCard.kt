@@ -40,7 +40,7 @@ fun MixFluidArt(title: String, modifier: Modifier = Modifier) {
     val background = LocalMixCoverBackground.current
     val motion = LocalArtworkMotion.current
     if (background != null) {
-        background(palette, motion, modifier)
+        background(palette, motion, mixSeed(title), modifier)
     } else {
         MeshGradientBackground(
             palette = remember(palette) { MeshPalette(palette.take(4)) },
@@ -65,6 +65,21 @@ fun mixContrastPalette(base: List<Color>): List<Color> {
         at(0),
         lerp(at(0), Color.Black, 0.35f),
     )
+}
+
+/**
+ * Seed gerak per mix (0..1), stabil dari judulnya: tiap kartu bergerak dan berbayang
+ * berbeda, sedangkan kartu, halaman, dan cover terbang untuk mix yang sama tetap kembar.
+ * Judul diacak dulu supaya "My Mix 1" dan "My Mix 2" tidak berdekatan nilainya.
+ */
+fun mixSeed(title: String): Float {
+    var h = title.trim().lowercase().hashCode()
+    h = h xor (h ushr 16)
+    h *= 0x45d9f3b
+    h = h xor (h ushr 16)
+    h *= 0x45d9f3b
+    h = h xor (h ushr 16)
+    return ((h and 0x7fffffff) % 1000) / 1000f
 }
 
 /** Deskripsi singkat per jenis mix, dipakai kalau mix tidak punya subtitle (daftar artis). */
@@ -102,8 +117,8 @@ fun MixCoverOverlay(title: String, subtitle: String, modifier: Modifier = Modifi
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.45f to Color.Black.copy(alpha = 0.30f),
-                        1f to Color.Black.copy(alpha = 0.62f),
+                        0.45f to Color.Black.copy(alpha = 0.16f),
+                        1f to Color.Black.copy(alpha = 0.42f),
                     ),
                 ),
         )

@@ -360,11 +360,12 @@ private val YT_UPGRADED_RENDITIONS = setOf("sddefault", "hq720", "maxresdefault"
 internal fun upgradeYouTubeThumbnail(url: String, px: Int): String {
     val match = YT_THUMB_NAME_REGEX.find(url) ?: return url
     val current = match.groupValues[1]
+    // hqdefault, sddefault and default are 4:3 with black bars baked in above
+    // and below the picture; mqdefault and hq720 are true 16:9 and have none.
     val target = when {
         px >= 480 -> "maxresdefault"
-        px >= 240 -> "sddefault"
-        current in YT_UPGRADED_RENDITIONS -> "hqdefault"
-        else -> return url
+        px >= 240 -> "hq720"
+        else -> "mqdefault"
     }
     return if (target == current) url else withRendition(url, match, target)
 }

@@ -200,6 +200,7 @@ internal suspend fun exportLyricsVideo(
     }
 
     if (opus != null && attempt(withAudio = true)) return out
+    Log.w(TAG, "lyrics video falls back to silent: synced=${timeline != null}, opus=${opus != null}")
     return if (attempt(withAudio = false)) out else null
 }
 
@@ -273,8 +274,14 @@ private class RoutingSourceFactory(
     override fun getSupportedTypes(): IntArray = plain.supportedTypes
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource =
-        if (mediaItem.localConfiguration?.tag === SongAudio) song.createMediaSource(mediaItem)
+        if (isSongItem(mediaItem)) song.createMediaSource(mediaItem)
         else plain.createMediaSource(mediaItem)
+
+    /** By its tag, or by the `zenith://` address only the player's own chain can open, should the tag not survive. */
+    private fun isSongItem(mediaItem: MediaItem): Boolean {
+        val local = mediaItem.localConfiguration ?: return false
+        return local.tag === SongAudio || local.uri.scheme == "zenith"
+    }
 }
 
 /** Marks the song's own items for [RoutingSourceFactory]. */

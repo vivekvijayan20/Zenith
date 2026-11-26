@@ -141,8 +141,8 @@ jobs:
         continue-on-error: true
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          TG_TOPIC_ID: ${{ secrets.TG_TOPIC_ID }}
+          TG_CHAT_ID: ${{ secrets.TG_BUILD_CHAT_ID }}
+          TG_TOPIC_ID: ${{ secrets.TG_BUILD_TOPIC_ID }}
           JOB_STATUS: ${{ job.status }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}

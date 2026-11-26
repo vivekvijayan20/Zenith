@@ -47,6 +47,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import com.music.zenith.data.TrackLog
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -225,6 +226,24 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
      */
     private val triedRenditions = ConcurrentHashMap.newKeySet<String>()
 
+    /** When each track was last written off as unanalysable, for [retryDue]. */
+    private val failedAt = ConcurrentHashMap<String, Long>()
+
+    /** How many times each written-off track has been given another go. */
+    private val failureRetries = ConcurrentHashMap<String, Int>()
+
+    /**
+     * Whether a track written off earlier deserves another look: a failure can
+     * be down to something that passes — a copy still settling on disk, a phone
+     * that was throttled — so it is tried again after a pause, a bounded number
+     * of times, rather than being final for the whole session.
+     */
+    private fun retryDue(trackId: String): Boolean {
+        val at = failedAt[trackId] ?: return false
+        if (SystemClock.elapsedRealtime() - at < FAILURE_RETRY_DELAY_MS) return false
+        return (failureRetries[trackId] ?: 0) < MAX_FAILURE_RETRIES
+    }
+
     /**
      * How many times each rendition has been thrown off disk for being
      * undecodable, so a clean slate stays a one-off.
@@ -254,6 +273,26 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
      * [assessTransitionTier] reads as no evidence rather than as a failure.
      */
     fun analysisFor(trackId: String): TrackAnalysis = results[trackId] ?: TrackAnalysis(trackId = trackId)
+
+    /**
+     * Salinan YouTube selalu boleh. Salinan playback (`#alt`) hanya jadi cadangan
+     * saat unduhan YouTube gagal; durasinya tetap dicek sebelum dipakai.
+     */
+    private fun usableForAnalysis(uri: Uri, key: String): Boolean {
+        val videoId = uri.getQueryParameter("v")
+        if (AutomixAnalysisSource.isCanonicalYouTubeRendition(videoId, key)) return true
+        // Termasuk `#hifi` hasil upgrade, bukan hanya `#alt`.
+        return videoId != null && key.startsWith("$videoId#") && cache.analysisDownloadFailed(videoId)
+    }
+
+    private val lastNotes = ConcurrentHashMap<String, String>()
+
+    /** Mencatat ke Copy Log hanya saat alasannya berubah, supaya tidak tiap tick. */
+    private fun note(trackId: String, reason: String) {
+        if (lastNotes.put(trackId, reason) != reason) {
+            TrackLog.d(TAG, "analysis $trackId: $reason", about = trackId)
+        }
+    }
 
     /**
      * Seperti [analysisFor], tapi jatuh ke penyimpanan disk bila belum ada di memori.
@@ -296,6 +335,42 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
     fun isAnalysing(trackId: String): Boolean = trackId in running
 
     /**
+     * Why [trackId] has no analysis yet, in words a listener can act on, for
+     * stats for nerds. Null when there is nothing worth saying.
+     *
+     * The thermal state is read live rather than from the last note, so a
+     * "phone too hot" reason disappears by itself once the phone has cooled.
+     */
+    fun statusNote(trackId: String): String? {
+        val raw = lastNotes[trackId]
+        if (raw != null && raw.startsWith("failed:")) return raw.take(80)
+        if (overheated) {
+            val level = when (thermalStatus) {
+                PowerManager.THERMAL_STATUS_SEVERE -> "SEVERE"
+                PowerManager.THERMAL_STATUS_CRITICAL -> "CRITICAL"
+                PowerManager.THERMAL_STATUS_EMERGENCY -> "EMERGENCY"
+                else -> "SHUTDOWN"
+            }
+            return "phone too hot, $level"
+        }
+        return when {
+            raw == null -> null
+            raw.startsWith("no YouTube copy") -> "no YouTube copy to analyse"
+            raw.startsWith("waiting for audio") -> {
+                val best = Regex(":(\\d+)/(\\d+)").findAll(raw)
+                    .map { it.groupValues[1].toLong() to it.groupValues[2].toLong() }
+                    .maxByOrNull { it.first }
+                when {
+                    best == null || best.first <= 0L -> "waiting for audio to download"
+                    best.second > 0L -> "audio ${best.first * 100 / best.second}% downloaded"
+                    else -> "audio ${best.first / 1024} kB downloaded so far"
+                }
+            }
+            else -> null
+        }
+    }
+
+    /**
      * Queues [trackId] (playing at [uri]) for analysis if it is not already
      * done or in flight. Cheap to call repeatedly; callers re-request as
      * caching progresses.
@@ -326,11 +401,20 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         if (trackId in running) return
         // A track measured in an earlier session costs nothing to restore, so
         // only the work below waits for the phone to cool.
-        if (overheated) {
+        // A hot phone sheds the heavy work, not all of it: the whole-track pass
+        // is tens of seconds of decoding and stays paused, but the opening of a
+        // track is a short decode and is all an incoming track is read for. So
+        // the track still gets its beat grid, and is refined once it cools.
+        val hot = overheated
+        if (hot) {
+            note(trackId, "hot phone: opening-only analysis")
             restoreOnce(trackId)
+        }
+        val analysisUri = analysisUriFor(trackId, uri)
+        if (analysisUri == null) {
+            note(trackId, "no YouTube copy to analyse (addon row or no match yet)")
             return
         }
-        val analysisUri = analysisUriFor(trackId, uri) ?: return
 
         // Only the canonical YouTube rendition of this recording will do, not
         // the source substitute the player happens to be on: see
@@ -349,6 +433,8 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         // no-op for anything without a YouTube id — which is why a local file
         // was never queued for analysis at all. See [LocalAudioSource].
         val local = LocalAudioSource.isLocal(analysisUri)
+        // A file off the device has no light pass to fall back on.
+        if (hot && local) return
 
         // Complete *and* not already written off. A copy that decoded to
         // nothing is not a copy worth routing to: counting it as "fully cached"
@@ -362,12 +448,15 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
             emptyList()
         } else {
             cache.renditionsOf(analysisUri)
-                .filter { AutomixAnalysisSource.isCanonicalYouTubeRendition(analysisUri.getQueryParameter("v"), it.key) }
+                .filter { usableForAnalysis(analysisUri, it.key) }
                 .filter { it.isComplete && it.key !in badRenditions }
         }
-        val usableComplete = local || complete.isNotEmpty()
+        val usableComplete = !hot && (local || complete.isNotEmpty())
 
         val recorded = results[trackId]
+        // Nothing already recorded is revisited while hot: superseding a head
+        // result or retrying a failure both mean the heavy pass.
+        if (hot && recorded != null) return
         // Two things are worth superseding, and nothing else is. A provisional
         // head result, because replacing it with the whole-track pass is the
         // entire point of it — and a recorded failure, but only once a copy of
@@ -386,7 +475,7 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         val supersedable = when {
             recorded == null -> false
             trackId in provisional -> usableComplete
-            else -> !recorded.isUsable && untried
+            else -> !recorded.isUsable && (untried || (usableComplete && retryDue(trackId)))
         }
         if (recorded != null && !supersedable) {
             // One exception to returning empty-handed. A provisional result is a
@@ -397,12 +486,20 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
             // rest, and a queued track reaches its own transition carrying an
             // entry-only estimate: no content end, no mix-out anchor, no vocal
             // mask, which is most of what the outgoing half of a blend reads.
-            if (trackId in provisional && !usableComplete) cache.requestAnalysisHead(analysisUri)
+            if (trackId in provisional && !usableComplete && !hot) cache.requestAnalysisHead(analysisUri)
             return
         }
         // The strike count belongs to the attempt that was given up on, not to
         // the track for the rest of the session; a reopened track starts level.
-        if (recorded != null && !recorded.isUsable) shortDecodes.remove(trackId)
+        if (recorded != null && !recorded.isUsable) {
+            shortDecodes.remove(trackId)
+            // Counted only when it is the pause that reopened the track, not a
+            // new copy of it turning up.
+            if (!untried && retryDue(trackId)) {
+                failureRetries.merge(trackId, 1, Int::plus)
+                failedAt.remove(trackId)
+            }
+        }
         // One head attempt per track: a partial container that will not parse
         // now is unlikely to parse ten ticks later, and retrying a decode every
         // 250ms would cost more than the analysis it is trying to bring
@@ -416,6 +513,11 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
             // never fetches it at all — see [AudioCache.requestAnalysisHead],
             // which is a no-op after the first call and for anything that isn't
             // a YouTube-backed track.
+            note(
+                trackId,
+                "waiting for audio, copies=" + cache.renditionsOf(analysisUri)
+                    .joinToString { "${it.key}:${it.cachedPrefix}/${it.contentLength}" },
+            )
             cache.requestAnalysisHead(analysisUri)
             return
         }
@@ -450,6 +552,7 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
                 if (usableComplete) {
                     val outcome = analyze(trackId, analysisUri, durationSeconds)
                     val whole = outcome.analysis
+                    note(trackId, "full pass ok=${whole != null} decodedShort=${outcome.decodedShort}")
                     if (whole != null) {
                         results[trackId] = whole
                         provisional.remove(trackId)
@@ -470,6 +573,7 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
                         // stays: a partial analysis beats an empty one.
                         Log.w(TAG, "Giving up on $trackId after $MAX_SHORT_DECODE_ATTEMPTS short decodes")
                         if (trackId !in provisional) {
+                            failedAt[trackId] = SystemClock.elapsedRealtime()
                             results[trackId] = TrackAnalysis(
                                 status = TrackAnalysis.STATUS_READY,
                                 trackId = trackId,
@@ -481,7 +585,13 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
                     // Marked before it is published, so a reader on the playback
                     // thread can never see a provisional result that is not
                     // flagged as one.
-                    analyzeHead(trackId, analysisUri, durationSeconds, headRendition!!)?.let { head ->
+                    val head = analyzeHead(trackId, analysisUri, durationSeconds, headRendition!!)
+                    note(
+                        trackId,
+                        "head pass ok=${head != null} key=${headRendition.key} " +
+                            "bytes=${headRendition.cachedPrefix}/${headRendition.contentLength}",
+                    )
+                    if (head != null) {
                         provisional.add(trackId)
                         results[trackId] = head
                     }
@@ -493,6 +603,7 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
                 // entire failure mode is meant to be "this track goes
                 // unanalysed".
                 Log.w(TAG, "Analysis of $trackId failed", error)
+                note(trackId, "failed: ${error.javaClass.simpleName}: ${error.message}")
                 // A failed head pass records nothing: the whole-track pass reads
                 // a different, complete file and deserves its own attempt.
                 // [headWorthTrying] has already made sure the head is not tried
@@ -501,6 +612,7 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
                     // Recorded as ready-but-empty so a track that cannot be
                     // analysed is not retried on every tick for the rest of the
                     // session.
+                    failedAt[trackId] = SystemClock.elapsedRealtime()
                     results[trackId] = TrackAnalysis(
                         status = TrackAnalysis.STATUS_READY,
                         trackId = trackId,
@@ -556,7 +668,7 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         // minutes earlier reported zero here, because the question was being
         // asked of the wrong copy of it.
         val candidate = cache.renditionsOf(uri)
-            .filter { AutomixAnalysisSource.isCanonicalYouTubeRendition(uri.getQueryParameter("v"), it.key) }
+            .filter { usableForAnalysis(uri, it.key) }
             .filter { it.cachedPrefix > 0L && it.key !in badRenditions }
             // The growth guard, applied as a filter rather than to the winner.
             // Applied afterwards it did not skip a copy, it ended the search: the
@@ -775,7 +887,7 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         durationSeconds: Double,
     ): AudioCache.Rendition? {
         val complete = cache.renditionsOf(uri)
-            .filter { AutomixAnalysisSource.isCanonicalYouTubeRendition(uri.getQueryParameter("v"), it.key) }
+            .filter { usableForAnalysis(uri, it.key) }
             .filter { it.isComplete && it.key !in badRenditions }
         if (complete.isEmpty()) return null
 
@@ -896,7 +1008,7 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         if (LocalAudioSource.isLocal(uri)) return null
         val expected = durationSeconds.takeIf { it.isFinite() && it > 0 } ?: return null
         val rendition = cache.renditionsOf(uri)
-            .filter { AutomixAnalysisSource.isCanonicalYouTubeRendition(uri.getQueryParameter("v"), it.key) }
+            .filter { usableForAnalysis(uri, it.key) }
             .filter { it.contentLength > 0 && it.key !in badRenditions }
             .filter { headSecondsOf(it, durationSeconds) >= untilSeconds + LOOP_PARTIAL_MARGIN_SECONDS }
             .maxByOrNull { headSecondsOf(it, durationSeconds) }
@@ -920,10 +1032,10 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         // YouTube search and its Opus on the network under a track whose whole
         // point is not being YouTube. Left unmeasured, as a party leaves every
         // track — see [SourceResolver.MIX_PARAM].
-        if (SourceResolver.isPickedAddonRow(playbackUri)) return null
+        if (SourceResolver.isPickedAddonRow(playbackUri)) return ownCompleteCopy(playbackUri)
         sourceAnalysisUris[trackId]?.let { return it }
-        if (trackId in sourceResolutionAttempted) return null
-        if (!sourceResolutions.add(trackId)) return null
+        if (trackId in sourceResolutionAttempted) return ownCompleteCopy(playbackUri)
+        if (!sourceResolutions.add(trackId)) return ownCompleteCopy(playbackUri)
         val target = SourceResolver.targetIn(playbackUri)
         sourceResolutionScope.launch {
             try {
@@ -941,8 +1053,20 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
                 sourceResolutions.remove(trackId)
             }
         }
-        return null
+        return ownCompleteCopy(playbackUri)
     }
+
+    /**
+     * [uri] itself, when the copy the player already cached under it is whole.
+     *
+     * A track with no YouTube twin to analyse — an addon row, or one nothing
+     * matched yet — was left unmeasured however much of it was on disk. A
+     * complete copy costs no network to read, and the duration check in
+     * [chooseRendition] still guards against a different cut. Anything partial
+     * is left alone: there is no head fetch for a source's own entry.
+     */
+    private fun ownCompleteCopy(uri: Uri): Uri? =
+        uri.takeIf { cache.renditionsOf(it).any { r -> r.isComplete && r.key !in badRenditions } }
 
     private suspend fun findYouTubeMatch(target: TrackMatcher.Target): com.music.zenith.data.model.Song? {
         if (target.title.isBlank()) return null
@@ -1621,6 +1745,8 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         shortDecodes.clear()
         badRenditions.clear()
         triedRenditions.clear()
+        failedAt.clear()
+        failureRetries.clear()
         discarded.clear()
         tracker.release()
         vocals.release()
@@ -1669,6 +1795,10 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
 
         /** Refusals before a track is written off as truncated rather than still filling in. */
         const val MAX_SHORT_DECODE_ATTEMPTS = 3
+
+        /** Pause before a written-off track is given another go, and how many times. */
+        const val FAILURE_RETRY_DELAY_MS = 45_000L
+        const val MAX_FAILURE_RETRIES = 2
 
         /**
          * Clean-slate retries per rendition. One: a discard is worth doing when

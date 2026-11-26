@@ -67,6 +67,7 @@ import com.music.zenith.ui.components.MiniPlayerPlayPauseButton
 import com.music.zenith.ui.components.glassContentColor
 import com.music.zenith.ui.components.isGlassSupported
 import com.music.zenith.ui.components.liquidGlass
+import com.music.zenith.ui.components.liquidGlassRim
 import com.music.zenith.ui.components.miniPlayerGestures
 import com.music.zenith.ui.components.thumbnailBorder
 import com.music.zenith.ui.components.rememberRemoteArtworkUrl
@@ -86,6 +87,9 @@ private const val MINI_ROW_UNTIL = 0.2f
 private const val MINI_ROW_UNTIL_LIGHT = 0.1f
 private const val PANEL_FILL_UNTIL_LIGHT = 0.1f
 private const val PANEL_FILL_UNTIL_DARK = 0.2f
+
+/** Sisa jarak buka tempat rim terus memudar setelah fill polos menggantikan glass, supaya tidak terpotong. */
+private const val PANEL_RIM_FADE_SPAN = 0.4f
 
 /** What the panel is filled with where the liquid glass is off. */
 private val PanelFallbackFill = Color(0xFF151517)
@@ -195,6 +199,23 @@ fun PlayerPanel(
                         .graphicsLayer { alpha = dock.panelFill(fillUntil) }
                         .background(dock.panelColor, shape),
                 )
+                // Rim kaca tetap ada setelah glass diganti fill polos, lalu memudar
+                // pelan; tanpa ini rim hilang/muncul mendadak saat expand dan minimize.
+                if (glassOn) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .graphicsLayer {
+                                val open = dock.openFraction()
+                                alpha = if (dock.panelFill(fillUntil) < 1f) {
+                                    0f
+                                } else {
+                                    (1f - (open - fillUntil) / PANEL_RIM_FADE_SPAN).coerceIn(0f, 1f)
+                                }
+                            }
+                            .liquidGlassRim(shape),
+                    )
+                }
             }
             Box(Modifier.fillMaxSize().clip(shape)) {
                 Box(

@@ -5,6 +5,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,9 +32,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -379,19 +384,47 @@ private fun DetailActionsSkeleton(isArtist: Boolean) {
         }
         return
     }
+    // Sama dengan baris aksi artis: Shuffle, Play besar, Bintang.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // Matches the real pair's inset, height and corner, so the header
-            // above them doesn't shift when the track list lands.
             .padding(horizontal = PAGE_GUTTER + 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        ShimmerBox(Modifier.size(50.dp), CircleShape)
-        ShimmerBox(Modifier.width(130.dp).height(50.dp), CircleShape)
-        if (!isArtist) {
-            ShimmerBox(Modifier.size(50.dp), CircleShape)
+        ShimmerBox(Modifier.size(52.dp), CircleShape)
+        ShimmerBox(Modifier.size(70.dp), CircleShape)
+        ShimmerBox(Modifier.size(52.dp), CircleShape)
+    }
+}
+
+/** Kartu rilis terbaru di halaman artis: panel 120dp, sampul 96dp, teks, tombol bulat. */
+@Composable
+private fun TopReleaseSkeleton() {
+    val shape = RoundedCornerShape(24.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PAGE_GUTTER)
+            .padding(bottom = 22.dp)
+            .background(Color.White.copy(alpha = 0.12f), shape)
+            .border(1.dp, Color.White.copy(alpha = 0.16f), shape)
+            .padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 19.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ShimmerBox(Modifier.size(96.dp), RoundedCornerShape(12.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            SkeletonLine(fraction = 0.55f, height = 12.dp)
+            Spacer(Modifier.height(10.dp))
+            SkeletonLine(fraction = 0.85f, height = 16.dp)
+            Spacer(Modifier.height(6.dp))
+            SkeletonLine(fraction = 0.6f, height = 16.dp)
+            Spacer(Modifier.height(10.dp))
+            SkeletonLine(fraction = 0.68f, height = 12.dp)
         }
+        Spacer(Modifier.width(10.dp))
+        ShimmerBox(Modifier.size(32.dp), CircleShape)
     }
 }
 
@@ -415,9 +448,27 @@ fun LazyListScope.detailSkeleton(isArtist: Boolean) {
                 Spacer(Modifier.height(22.dp))
             }
         }
-        item(key = "skeleton:detail:top") {
+        item(key = "skeleton:detail:release") {
             Column(skeletonLeave().enterReveal(600).graphicsLayer { alpha = 0.4f }) {
-                SectionHeaderSkeleton()
+                TopReleaseSkeleton()
+            }
+        }
+        item(key = "skeleton:detail:top") {
+            Column(skeletonLeave().enterReveal(660).graphicsLayer { alpha = 0.4f }) {
+                // Setinggi judul "Top songs" asli, supaya baris di bawahnya tidak bergeser.
+                // Dari fontSize, karena lineHeight style ini tidak diisi.
+                val headingHeight = with(LocalDensity.current) {
+                    (MaterialTheme.typography.headlineMedium.fontSize * 1.3f).toDp()
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = PAGE_GUTTER, end = PAGE_GUTTER, top = 10.dp, bottom = 8.dp)
+                        .height(headingHeight),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    SkeletonLine(fraction = 0.34f, height = 22.dp)
+                }
                 // Top songs page four at a time — see [trackColumnWidth] for how
                 // wide a page lands.
                 BoxWithConstraints {
@@ -427,9 +478,10 @@ fun LazyListScope.detailSkeleton(isArtist: Boolean) {
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         userScrollEnabled = false,
                     ) {
-                        item {
+                        // Dua kolom, jadi sampul kolom berikutnya mengintip seperti aslinya.
+                        items(2) { column ->
                             Column(Modifier.width(columnWidth)) {
-                                repeat(4) { index -> CompactSongRowSkeleton(index) }
+                                repeat(4) { index -> CompactSongRowSkeleton(column * 4 + index) }
                             }
                         }
                     }
@@ -437,14 +489,17 @@ fun LazyListScope.detailSkeleton(isArtist: Boolean) {
             }
         }
         item(key = "skeleton:detail:sections") {
-            Box(skeletonLeave().enterReveal(660).graphicsLayer { alpha = 0.4f }) {
+            Box(skeletonLeave().enterReveal(720).graphicsLayer { alpha = 0.4f }) {
                 ShelfSkeleton(index = 2, cardCorner = 10.dp)
             }
         }
         return
     }
     item(key = "skeleton:detail:actions") {
-        Column(Modifier.graphicsLayer { alpha = 0.4f }) {
+        // Di atas kaki hero full-bleed (yang menjulur 88dp ke bawah tingginya),
+        // dengan jarak atas yang sama seperti baris tombol aslinya.
+        Column(Modifier.zIndex(1f).graphicsLayer { alpha = 0.4f }) {
+            Spacer(Modifier.height(18.dp))
             DetailActionsSkeleton(isArtist = false)
             Spacer(Modifier.height(18.dp))
         }
@@ -456,7 +511,7 @@ fun LazyListScope.detailSkeleton(isArtist: Boolean) {
 @Composable
 private fun CompactSongRowSkeleton(index: Int) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ShimmerBox(Modifier.size(48.dp), RoundedCornerShape(7.dp))
@@ -465,6 +520,10 @@ private fun CompactSongRowSkeleton(index: Int) {
             SkeletonLine(fraction = TitleWidths[index % TitleWidths.size], height = 14.dp)
             Spacer(Modifier.height(6.dp))
             SkeletonLine(fraction = SubtitleWidths[index % SubtitleWidths.size], height = 11.dp)
+        }
+        // Tempat tombol titik tiga.
+        Box(Modifier.width(40.dp), contentAlignment = Alignment.Center) {
+            ShimmerBox(Modifier.width(4.dp).height(16.dp))
         }
     }
 }

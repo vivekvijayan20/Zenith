@@ -1397,6 +1397,38 @@ const val MAX_ECHO_SECONDS = 1.0
 
 fun echoTailSeconds(echoSeconds: Double): Double = echoSeconds * ECHO_REPEATS
 
+/**
+ * The length of a plain crossfade out of [analysis]'s track: [standardFade],
+ * shortened — never lengthened, the listener's own setting is the ceiling —
+ * when the track is already dying away by its exit.
+ *
+ * A long equal-power fade laid over an ending that has already faded out
+ * leaves the incoming song entering under near-silence, which reads as a dip
+ * rather than a blend. Judged from the outgoing track's own energy curve: how
+ * loud the stretch the fade would cover is against the track as a whole.
+ * Without a curve, or with a loud ending, the fade is left as it was.
+ */
+private fun plainFadeFor(
+    analysis: TrackAnalysis,
+    mixAnchor: Double,
+    standardFade: Double,
+    minFadeSeconds: Double,
+): Double {
+    val curve = analysis.energyCurve
+    if (curve.size < QUIET_ENDING_MIN_SAMPLES) return standardFade
+    val overall = curve.map { it.energy }.average()
+    if (!overall.isFinite() || overall <= 0.0) return standardFade
+    val tail = curve.filter { it.time >= mixAnchor - standardFade && it.time <= mixAnchor }
+    if (tail.isEmpty()) return standardFade
+    val ratio = tail.map { it.energy }.average() / overall
+    if (!ratio.isFinite() || ratio >= QUIET_ENDING_RATIO) return standardFade
+    return clamp(standardFade * QUIET_ENDING_FADE_SCALE, minFadeSeconds, standardFade)
+}
+
+private const val QUIET_ENDING_MIN_SAMPLES = 16
+private const val QUIET_ENDING_RATIO = 0.35
+private const val QUIET_ENDING_FADE_SCALE = 0.6
+
 private fun standardTransition(
     length: Double,
     playbackTime: Double,
@@ -1595,7 +1627,8 @@ private fun planTransitionInner(
 
     val policy = assessTransitionTier(analysis, nextAnalysis, advanced)
     if (policy.tier == TransitionTier.PLAIN_CROSSFADE) {
-        val transitionStart = max(0.0, mixAnchor - standardFade)
+        val plainFade = plainFadeFor(analysis, mixAnchor, standardFade, minFadeSeconds)
+        val transitionStart = max(0.0, mixAnchor - plainFade)
         val started = playbackTime >= transitionStart
         return TransitionPlan(
             shouldStart = started,
@@ -1605,7 +1638,8 @@ private fun planTransitionInner(
             fadeSeconds = mixAnchor - transitionStart,
             transitionStyle = TransitionStyle.EQUAL_POWER,
             incomingCueTime = incomingStartPoint(nextAnalysis),
-            policyReasons = policy.reasons,
+            policyReasons = policy.reasons +
+                listOfNotNull(if (plainFade < standardFade - 1e-6) "quiet-ending-shorter-fade" else null),
             reason = if (started) "smart-plain-crossfade" else "before-plain-crossfade-window",
         )
     }

@@ -428,6 +428,10 @@ fun DetailScreen(
         if (page.type == BrowseType.ALBUM) rawSongs.popularTrackIds() else emptySet()
     }
     val isArtist = page.type == BrowseType.ARTIST
+    // Hero full-bleed menjulur ke bawah teks, jadi cover terbang menutupi teks
+    // di sana. Teks di halaman seperti ini menunggu cover mendarat.
+    val textAfterFlight = page.isAlbumHero() || page.isMixHero() || page.isLikedMusic() ||
+        page.covers.isNotEmpty() || page.isFolderCover()
     // Whether the top release card's album is already saved isn't on the shelf
     // item; it is read off the album once, as soon as the card is known.
     val topReleaseId = if (isArtist) page.sections.topRelease()?.browseId else null
@@ -450,7 +454,16 @@ fun DetailScreen(
     val signatureEnabled by AppSettings.signatureApiEnabled.collectAsStateWithLifecycle()
     val signatureBaseUrl by AppSettings.signatureApiUrl.collectAsStateWithLifecycle()
     val signatureUpdates by ArtistSignatureRepository.updates.collectAsStateWithLifecycle()
-    var signature by remember(page.browseId) { mutableStateOf<ArtistSignature?>(null) }
+    // Diisi dari cache sejak frame pertama, supaya kembali ke halaman ini tidak
+    // sempat menampilkan nama polos sebelum signature muncul lagi.
+    var signature by remember(page.browseId) {
+        mutableStateOf(
+            ArtistSignatureRepository.cached(
+                page.title,
+                ArtistSignatureRepository.effectiveBaseUrl(signatureEnabled, signatureBaseUrl),
+            ).takeIf { isArtist },
+        )
+    }
     // Opened from a track, the title is the whole credit ("A, B & C") until the
     // page loads and swaps in the one artist's name. Searching a credit finds
     // nobody, so a title that reads as several artists waits for that swap; any
@@ -774,7 +787,17 @@ fun DetailScreen(
                 if (!showAbout) return
                 item(key = "about") {
                     // Clear of the last shelf above it.
-                    Box(Modifier.padding(top = if (isArtist) 28.dp else 0.dp)) {
+                    Box(
+                        Modifier
+                            .padding(top = if (isArtist) 28.dp else 0.dp)
+                            .then(
+                                if (isArtist) {
+                                    Modifier
+                                } else {
+                                    Modifier.flightReveal(320, afterFlight = textAfterFlight)
+                                },
+                            ),
+                    ) {
                     AboutSection(
                         title = stringResource(
                             if (isArtist) R.string.about_artist else R.string.about_album,
@@ -887,7 +910,12 @@ fun DetailScreen(
                     ) { position, entry ->
                         // The first rows arrive one after another; later ones, composed
                         // while scrolling, are already visible and draw as they are.
-                        Column(Modifier.enterReveal(340 + position.coerceAtMost(8) * 30)) {
+                        Column(
+                            Modifier.flightReveal(
+                                delayMs = 340 + position.coerceAtMost(8) * 30,
+                                afterFlight = textAfterFlight,
+                            ),
+                        ) {
                         val song = entry.value
                         val isCurrent = isCurrentRow(song)
                         SongRow(
@@ -936,13 +964,21 @@ fun DetailScreen(
                 val albumSongs = (page.songs as? UiState.Success)?.data.orEmpty()
                 if (albumSongs.isNotEmpty()) {
                     item(key = "album-info") {
-                        AlbumInfoFooter(
-                            releaseDate = albumInfo?.releaseDateText(),
-                            year = RELEASE_YEAR.find(page.subtitle)?.value,
-                            copyright = albumInfo?.copyright,
-                            songs = albumSongs,
-                            palette = palette,
-                        )
+                        // Menyusul baris lagu terakhir, tidak mendahuluinya.
+                        Box(
+                            Modifier.flightReveal(
+                                delayMs = 370 + matches.size.coerceAtMost(8) * 30,
+                                afterFlight = textAfterFlight,
+                            ),
+                        ) {
+                            AlbumInfoFooter(
+                                releaseDate = albumInfo?.releaseDateText(),
+                                year = RELEASE_YEAR.find(page.subtitle)?.value,
+                                copyright = albumInfo?.copyright,
+                                songs = albumSongs,
+                                palette = palette,
+                            )
+                        }
                     }
                 }
             }
@@ -1259,7 +1295,7 @@ private fun ReleaseHeader(
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.flightReveal(150, afterFlight = page.covers.isNotEmpty()).padding(horizontal = HEADER_GUTTER),
+            modifier = Modifier.flightReveal(150, afterFlight = fullBleed).padding(horizontal = HEADER_GUTTER),
         )
         if (credit.isNotBlank()) {
             Spacer(Modifier.height(2.dp))
@@ -1274,7 +1310,8 @@ private fun ReleaseHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .flightReveal(200, afterFlight = page.covers.isNotEmpty())
+                    .flightReveal(200, afterFlight = fullBleed)
+                    .lateReveal(40)
                     .padding(horizontal = HEADER_GUTTER)
                     .let { m ->
                         val id = artist?.artistId
@@ -1290,7 +1327,7 @@ private fun ReleaseHeader(
         if (meta.isNotBlank() || albumQualityShown != null) {
             Spacer(Modifier.height(4.dp))
             Row(
-                modifier = Modifier.flightReveal(240, afterFlight = page.covers.isNotEmpty()).padding(horizontal = HEADER_GUTTER),
+                modifier = Modifier.flightReveal(240, afterFlight = fullBleed).lateReveal(80).padding(horizontal = HEADER_GUTTER),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1335,7 +1372,8 @@ private fun ReleaseHeader(
             Spacer(Modifier.height(18.dp))
             Row(
                 modifier = Modifier
-                    .flightReveal(290, afterFlight = page.covers.isNotEmpty())
+                    .flightReveal(290, afterFlight = fullBleed)
+                    .lateReveal(130)
                     .widthIn(max = RELEASE_ACTIONS_MAX_WIDTH)
                     .fillMaxWidth()
                     .padding(horizontal = HEADER_GUTTER),
@@ -1436,7 +1474,11 @@ private fun ReleaseHeader(
         // masih kosong, dan baris Shuffle/Play belum ada, tapi tombol ini harus.
         // Dengan lagu, tombol ini sudah ada di baris aksi (addSongsInRow); pil lebar
         // hanya untuk playlist kosong atau saat baris itu sudah dipakai tombol lain.
-        if (onAddSongs != null && !(addSongsInRow && songs.isNotEmpty())) {
+        // Hanya setelah daftar lagu selesai dimuat: selama Loading, songs masih
+        // kosong dan pil ini sempat muncul lalu hilang saat lagu datang.
+        if (onAddSongs != null && page.songs is UiState.Success &&
+            !(addSongsInRow && songs.isNotEmpty())
+        ) {
             Spacer(Modifier.height(if (songs.isEmpty()) 18.dp else 10.dp))
             ActionPill(
                 icon = ZenithIcons.Plus,
@@ -1445,7 +1487,7 @@ private fun ReleaseHeader(
                 filled = songs.isEmpty(),
                 size = RELEASE_SIDE_BUTTON,
                 modifier = Modifier
-                    .flightReveal(290, afterFlight = page.covers.isNotEmpty())
+                    .flightReveal(290, afterFlight = fullBleed)
                     .widthIn(max = RELEASE_ACTIONS_MAX_WIDTH)
                     .fillMaxWidth()
                     .padding(horizontal = HEADER_GUTTER),
@@ -1625,7 +1667,8 @@ private fun ArtistHeader(
         // Whether the logo has actually been drawn. Until it has — a first fetch
         // of an Apple logo is a few hundred KB the CDN may still be resizing — the
         // name stands in for it, so the header is never left with nothing in it.
-        var logoShown by remember(imageUrl) { mutableStateOf(false) }
+        // Saveable: saat kembali dari album, "Signed by" langsung ada di tempatnya.
+        var logoShown by rememberSaveable(imageUrl) { mutableStateOf(false) }
         if (imageUrl != null) {
             val context = LocalPlatformContext.current
             var attempt by remember(imageUrl) { mutableIntStateOf(0) }
@@ -1789,7 +1832,18 @@ private fun PageBackground(
                 .zoomBackgroundOnPull(pull)
                 .offset { IntOffset(0, listState.headerTop(artHeight.toPx()).roundToInt()) }
                 // After the offset, so the flight lands on where the photo really is.
-                .coverFlightTarget(page.browseId, 0.dp, palette.wash),
+                .coverFlightTarget(page.browseId, 0.dp, palette.wash)
+                // Tepi foto di posisi piksel pecahan menyisakan satu baris setengah
+                // transparan. Strip warna halaman menutup jahitannya.
+                .drawWithContent {
+                    drawContent()
+                    val seam = 2.dp.toPx()
+                    drawRect(
+                        color = palette.wash,
+                        topLeft = Offset(0f, size.height - seam),
+                        size = androidx.compose.ui.geometry.Size(size.width, seam * 2f),
+                    )
+                },
         ) {
             SwapArt(
                 url = art,

@@ -168,6 +168,11 @@ class CrossfadeController(
      */
     private val analysisRunningFor: (MediaItem) -> Boolean = { false },
     /**
+     * Why a media item has no analysis yet — a hot phone, audio still
+     * downloading, no YouTube copy. Only feeds the stats line.
+     */
+    private val analysisNoteFor: (MediaItem) -> String? = { null },
+    /**
      * The track about to be loaded onto the standby player, announced at the
      * moment [begin] arms rather than at the handoff.
      *
@@ -1375,7 +1380,9 @@ class CrossfadeController(
         // starts that much earlier, from arming.
         val beatMs = (plan.beatSeconds * 1000).roundToLong()
         val rampMs = if (beatMs > 0L) rampStepsFor(plan.outgoingPlaybackRate) * beatMs else 0L
-        if (remaining > ARM_LEAD_MS + rampMs) return
+        // Stream berikutnya belum siap di disk: arm lebih awal agar sempat buffering.
+        val armLeadMs = if (nextStreamReady(nextItem)) ARM_LEAD_MS else SLOW_STREAM_ARM_LEAD_MS
+        if (remaining > armLeadMs + rampMs) return
 
         begin(
             fade,
@@ -1654,6 +1661,12 @@ class CrossfadeController(
             }
         }
 
+        TrackLog.d(
+            TAG,
+            "mix arm smart=$smart fade=${fade}ms at=${out.currentPosition}ms end=${endMs}ms " +
+                "ready=${items.getOrNull(nextIndex)?.let(nextStreamReady)}",
+            about = null,
+        )
         phase = Phase.ARMING
         return true
     }
@@ -1762,6 +1775,8 @@ class CrossfadeController(
      * this is only ever waiting on a buffer.
      */
     private fun driveArming() {
+        val standbyPlayer = incoming
+        if (standbyPlayer != null && reopenStandbyAsManifest(standbyPlayer)) return
         if (manualFade) return driveManualArming()
         val out = outgoing ?: return bail()
         val into = incoming ?: return bail()
@@ -1777,7 +1792,10 @@ class CrossfadeController(
         // A standby that never got the incoming track ready has nothing to fade
         // up. Give up and let the queue move on plainly rather than fading into
         // silence.
-        if (expired && !ready) return bail()
+        if (expired && !ready) {
+            TrackLog.d(TAG, "mix cancelled: next track not ready before the arm timeout", about = null)
+            return bail()
+        }
 
         // Both sinks write seconds ahead of the speaker. The standby fills its
         // whole buffer while it waits here, so its filter has to be at the
@@ -1814,6 +1832,46 @@ class CrossfadeController(
         if (ready) startFade()
     }
 
+    private var manifestReopening: String? = null
+
+    /**
+     * Addon bisa mengirim manifest DASH/HLS yang gagal dibuka sebagai audio biasa.
+     * Player utama membukanya ulang sendiri; standby harus melakukannya di sini.
+     *
+     * @return true selama pembukaan ulang sedang berjalan.
+     */
+    private fun reopenStandbyAsManifest(into: ExoPlayer): Boolean {
+        val item = into.currentMediaItem ?: return false
+        if (manifestReopening == item.mediaId) return true
+        if (into.playerError?.errorCode != PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) return false
+        if (item.localConfiguration?.mimeType != null) return false
+        val mime = StreamContainer.manifestServing(item.mediaId) ?: return false
+        val uri = item.localConfiguration?.uri ?: return false
+        val reopened = StreamContainer.markedForManifestReopen(uri.toString(), mime)
+        if (reopened == uri.toString()) return false
+
+        TrackLog.w(TAG, "mix: reopening next track ${item.mediaId} as $mime", about = null)
+        manifestReopening = item.mediaId
+        val declared = item.buildUpon().setUri(reopened).setMimeType(mime).build()
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { AudioCache.discard(uri) }
+                withContext(Dispatchers.Main) {
+                    if (phase != Phase.ARMING || incoming !== into) return@withContext
+                    if (into.currentMediaItem?.mediaId != item.mediaId) return@withContext
+                    val index = into.currentMediaItemIndex
+                    into.replaceMediaItem(index, declared)
+                    into.seekTo(index, incomingCueTimeMs)
+                    into.prepare()
+                    armDeadline = SystemClock.elapsedRealtime() + ARM_TIMEOUT_MS
+                }
+            } finally {
+                manifestReopening = null
+            }
+        }
+        return true
+    }
+
     /**
      * Starts the incoming track under the outgoing one.
      *
@@ -1830,6 +1888,7 @@ class CrossfadeController(
 
         into.volume = 0f
         into.playWhenReady = true
+        TrackLog.d(TAG, "mix start at=${out.currentPosition}ms", about = null)
         fadeStartedAt = SystemClock.elapsedRealtime()
         phaseLogNext = 0
         phaseLogCount = 0
@@ -2572,6 +2631,7 @@ class CrossfadeController(
         val outPort = loopPortOf(out) ?: return
         val inPort = loopPortOf(into) ?: return
         endEase(clickless = false)
+        TrackLog.d(TAG, "mix loop arm at=${out.currentPosition}ms", about = null)
         phase = Phase.LOOP_ARMING
         smartFadeActive = true
         handedOff = false
@@ -2894,6 +2954,22 @@ class CrossfadeController(
         if (AppSettings.automixDetail.value != text) AppSettings.automixDetail.value = text
     }
 
+    /** The planner's reason codes in words, for the stats line. */
+    private fun readablePolicyReasons(codes: List<String>): String {
+        val words = codes.map { code ->
+            when (code) {
+                "outgoing-tempo" -> "this song has no usable tempo"
+                "incoming-tempo" -> "next song has no usable tempo yet"
+                "tempo-distance" -> "tempos too far apart"
+                "beat-confidence" -> "beat grid not trusted"
+                "unmixable-pair" -> "key or vocal clash"
+                "quiet-ending-shorter-fade" -> "quiet ending, shorter fade"
+                else -> code
+            }
+        }.distinct()
+        return if (words.isEmpty()) "" else " · " + words.joinToString(", ")
+    }
+
     private fun describeAutomix(player: ExoPlayer, item: MediaItem): String {
         val session = loopSession
         if (session != null) {
@@ -2921,7 +2997,7 @@ class CrossfadeController(
             val whenText = if (inSeconds > 0) "in ${ceil(inSeconds).toInt()} s" else "now"
             val bars = if (plan.beatSeconds > 0) (plan.fadeSeconds / (4 * plan.beatSeconds)).roundToInt() else 0
             val length = if (bars > 0) "$bars bars" else "${"%.1f".format(Locale.ROOT, plan.fadeSeconds)} s"
-            val why = plan.policyReasons.firstOrNull()?.let { " · $it" }.orEmpty()
+            val why = readablePolicyReasons(plan.policyReasons)
             val noLoop = loopRefusal?.let { " · no loop: $it" }.orEmpty()
             return when (plan.transitionStyle) {
                 TransitionStyle.EQUAL_POWER -> "Automix · crossfading $whenText · ${"%.0f".format(Locale.ROOT, plan.fadeSeconds)} s$why$noLoop"
@@ -2938,8 +3014,9 @@ class CrossfadeController(
             val analysis = analysisFor(target)
             val state = stateOf(target, analysis)
             if (state == TrackAnalysisState.ANALYSING) return "analysing…"
-            if (state == TrackAnalysisState.WAITING) return "waiting"
-            if (state == TrackAnalysisState.FAILED || !analysis.isUsable) return "failed"
+            val why = analysisNoteFor(target)?.let { " ($it)" }.orEmpty()
+            if (state == TrackAnalysisState.WAITING) return "waiting$why"
+            if (state == TrackAnalysisState.FAILED || !analysis.isUsable) return "failed$why"
             val side = if (outgoing) analysis.tailBeats else analysis.headBeats
             val bpm = side?.bpm ?: analysis.bpm
             val confidence = side?.confidence ?: analysis.beatConfidence
@@ -4080,6 +4157,9 @@ class CrossfadeController(
          * gets dropped.
          */
         const val ARM_LEAD_MS = 4_000L
+
+        /** Jeda arm Automix saat stream berikutnya belum siap; harus di bawah [ARM_TIMEOUT_MS]. */
+        const val SLOW_STREAM_ARM_LEAD_MS = 8_000L
 
         /**
          * The earliest, in wall-clock ms before the next item starts, that

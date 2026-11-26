@@ -427,8 +427,8 @@ fun GlassSearchBar(
                     scaleX = 1f - 0.35f * f
                     scaleY = 1f - 0.35f * f
                 }
+                .then(Modifier.liquidGlass(shape = shape, edgeDepth = barLayout.edgeDepth))
                 .clip(shape)
-                .then(Modifier.liquidGlass(shape = shape))
                 .clickable(
                     enabled = interactive && tabClickable,
                     interactionSource = remember { MutableInteractionSource() },
@@ -512,9 +512,9 @@ fun GlassSearchBar(
                     width = { rightWidth(progress()) },
                     height = { rowHeight(progress()) },
                 )
-                .clip(shape)
-                .then(Modifier.liquidGlass(shape = shape)),
-            contentAlignment = Alignment.CenterStart,
+                .then(Modifier.liquidGlass(shape = shape, edgeDepth = barLayout.edgeDepth))
+                .clip(shape),
+                contentAlignment = Alignment.CenterStart,
         ) {
             // One search glyph for both states: it rests centred in the Search circle
             // and, as the capsule opens, slides left with the capsule's edge into the

@@ -14,6 +14,7 @@ import com.motion.lyrics.HeadOut
 import com.motion.lyrics.MotionTuning
 import com.motion.lyrics.MotionWord
 import com.motion.lyrics.computeHead
+import com.motion.lyrics.dampedStep
 import com.motion.lyrics.smoothstep
 import com.motion.lyrics.toMotionWords
 import com.music.zenith.data.lyrics.CharGrowth
@@ -214,6 +215,7 @@ internal class LyricsCardPainter internal constructor(
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG)
     private val motionWords = HashMap<Int, List<MotionWord>>()
     private val clusterCache = HashMap<Row, IntArray>()
+    private val follow = HashMap<Row, LiquidFollow>()
 
     /** Each line's place among the sung lines (gaps don't count), for the falloff. */
     private val rank = IntArray(lines.size).also { ranks ->
@@ -348,7 +350,7 @@ internal class LyricsCardPainter internal constructor(
         val rowEnd = rowStart + text.length
         fun run(from: Int, to: Int, dy: Float) {
             if (to <= from) return
-            canvas.drawText(text, from, to, placed.x + paint.measureText(text, 0, from), placed.baseline + dy, paint)
+            canvas.drawRunOf(text, from, to, placed.x + advanceAt(paint, text, from), placed.baseline + dy, paint)
         }
         var cursor = 0
         timing.wordSpans.forEachIndexed { index, span ->
@@ -361,8 +363,8 @@ internal class LyricsCardPainter internal constructor(
                 for (k in from until to) {
                     val letter = rowStart + k - span.first
                     grow.sampleInto(letter, positionMs, growth)
-                    val left = placed.x + paint.measureText(text, 0, k)
-                    val w = paint.measureText(text, k, k + 1)
+                    val left = placed.x + advanceAt(paint, text, k)
+                    val w = advanceAt(paint, text, k + 1) - advanceAt(paint, text, k)
                     val cx = left + w / 2f + growth.shift * size
                     val y = placed.baseline - growth.rise * rise
                     canvas.save()
@@ -371,9 +373,9 @@ internal class LyricsCardPainter internal constructor(
                         glow.set(paint)
                         glow.alpha = (paint.alpha * growth.bloom.coerceAtMost(1f)).roundToInt()
                         glow.maskFilter = BlurMaskFilter(size * GLOW_RATIO, BlurMaskFilter.Blur.NORMAL)
-                        canvas.drawText(text, k, k + 1, cx - w / 2f, y, glow)
+                        canvas.drawRunOf(text, k, k + 1, cx - w / 2f, y, glow)
                     }
-                    canvas.drawText(text, k, k + 1, cx - w / 2f, y, paint)
+                    canvas.drawRunOf(text, k, k + 1, cx - w / 2f, y, paint)
                     canvas.restore()
                 }
             } else {
@@ -424,7 +426,7 @@ internal class LyricsCardPainter internal constructor(
         if (n == 0) return
         computeHead(words, pos, headOut)
         val head = headOut.head
-        val sung = headOut.sung
+        var sung = headOut.sung
         val riseDist = size * MotionTuning.RiseDistanceEm
         val top = placed.baseline + paint.ascent()
         val bottom = placed.baseline + paint.descent()
@@ -442,8 +444,8 @@ internal class LyricsCardPainter internal constructor(
         for (k in 0 until n) {
             val s = bounds[k * 2]
             val e = bounds[k * 2 + 1]
-            lefts[k] = placed.x + paint.measureText(text, 0, s)
-            rights[k] = placed.x + paint.measureText(text, 0, e)
+            lefts[k] = placed.x + advanceAt(paint, text, s)
+            rights[k] = placed.x + advanceAt(paint, text, e)
             val c = (row.start + s).toFloat()
             val wi = words.indexOfFirst { c >= it.charStart && c < it.charEnd }
             wordAt[k] = wi
@@ -467,6 +469,36 @@ internal class LyricsCardPainter internal constructor(
             rise[k] = riseTarget
             swell[k] = swellTarget
         }
+
+        // Follow the targets with the panel's own critically damped springs, so
+        // the rise, swell and glow ease instead of jumping to each frame's value.
+        // A seek or a cut to another stretch of the track snaps instead.
+        val state = follow.getOrPut(placed.row) { LiquidFollow(n) }
+        val dtMs = if (state.lastPos == Long.MIN_VALUE) Long.MAX_VALUE else pos - state.lastPos
+        val snap = dtMs < 0L || dtMs > FOLLOW_SNAP_MS
+        if (dtMs != 0L) {
+            val dt = (dtMs / 1000f).coerceIn(0.001f, 0.25f)
+            for (k in 0 until n) {
+                if (snap) {
+                    state.rise[k] = rise[k]; state.riseVel[k] = 0f
+                    state.swell[k] = swell[k]; state.swellVel[k] = 0f
+                } else {
+                    dampedStep(state.rise, state.riseVel, k, rise[k], MotionTuning.RiseFollowSec, dt)
+                    dampedStep(state.swell, state.swellVel, k, swell[k], MotionTuning.SwellFollowSec, dt)
+                }
+            }
+            if (snap) {
+                state.bloom[0] = sung; state.bloomVel[0] = 0f
+            } else {
+                dampedStep(state.bloom, state.bloomVel, 0, sung, MotionTuning.BloomFollowSec, dt)
+            }
+            state.lastPos = pos
+        }
+        for (k in 0 until n) {
+            rise[k] = state.rise[k]
+            swell[k] = state.swell[k]
+        }
+        sung = state.bloom[0]
 
         // Glow first, under the letters, fading continuously.
         val glowR = size * MotionTuning.GlowRadiusEm
@@ -513,7 +545,7 @@ internal class LyricsCardPainter internal constructor(
             scratch.set(paint)
             scratch.shader = null
             scratch.alpha = inactiveAlpha
-            canvas.drawText(text, s, e, left, placed.baseline, scratch)
+            canvas.drawRunOf(text, s, e, left, placed.baseline, scratch)
 
             val hx = dist * w
             val front = feather * 0.6f
@@ -525,7 +557,7 @@ internal class LyricsCardPainter internal constructor(
             val settled = !waiting && hx - back >= w
             if (settled || wordDone) {
                 scratch.alpha = activeAlpha
-                canvas.drawText(text, s, e, left, placed.baseline, scratch)
+                canvas.drawRunOf(text, s, e, left, placed.baseline, scratch)
             } else if (reached) {
                 fun tone(a: Float) = ((activeAlpha * a).roundToInt() shl 24) or rgb
                 scratch.shader = LinearGradient(
@@ -535,7 +567,7 @@ internal class LyricsCardPainter internal constructor(
                     Shader.TileMode.CLAMP,
                 )
                 scratch.alpha = 255
-                canvas.drawText(text, s, e, left, placed.baseline, scratch)
+                canvas.drawRunOf(text, s, e, left, placed.baseline, scratch)
                 scratch.shader = null
             }
             canvas.restore()
@@ -601,6 +633,20 @@ private const val RISE_RATIO = 2f / 34f
 private const val HEADROOM_RATIO = 0.35f
 private const val GLOW_RATIO = 6f / 34f
 
+/** A jump in track time longer than this is a seek or a cut, not a frame step. */
+private const val FOLLOW_SNAP_MS = 250L
+
+/** The eased rise, swell and glow of one row, carried from frame to frame. */
+private class LiquidFollow(n: Int) {
+    val rise = FloatArray(n)
+    val riseVel = FloatArray(n)
+    val swell = FloatArray(n)
+    val swellVel = FloatArray(n)
+    val bloom = FloatArray(1)
+    val bloomVel = FloatArray(1)
+    var lastPos = Long.MIN_VALUE
+}
+
 /** A repeatable pseudo-random 0..1 from [n], so a sparkle sits where it did last frame. */
 private fun hash01(n: Int): Float {
     var x = n * 374761393 + 668265263
@@ -608,6 +654,20 @@ private fun hash01(n: Int): Float {
     x = x xor (x ushr 16)
     return (x and 0xFFFF) / 65535f
 }
+
+/**
+ * The pen position at [offset], shaped within the whole [text] so the kerning
+ * with the letter that follows is counted. Measuring a prefix
+ * (`measureText(text, 0, offset)`) drops that pair, which pushed the "o" of
+ * "You" into the "u" when letters are drawn one by one.
+ */
+private fun advanceAt(paint: Paint, text: String, offset: Int): Float =
+    if (offset <= 0) 0f
+    else paint.getRunAdvance(text, 0, text.length, 0, text.length, false, offset.coerceAtMost(text.length))
+
+/** Draws [from, to) of [text] shaped in the context of the whole line, so a lone letter keeps its place. */
+private fun Canvas.drawRunOf(text: String, from: Int, to: Int, x: Float, y: Float, paint: Paint) =
+    drawTextRun(text, from, to, 0, text.length, x, y, false, paint)
 
 private fun isRtl(text: String): Boolean =
     !java.text.Bidi(text, java.text.Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT).baseIsLeftToRight()

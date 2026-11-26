@@ -274,6 +274,7 @@ fun SettingsScreen(
     val signatureApiUrl by AppSettings.signatureApiUrl.collectAsStateWithLifecycle()
     val fullBleedArtwork by AppSettings.fullBleedArtwork.collectAsStateWithLifecycle()
     val canvasLiveBlurPanels by AppSettings.canvasLiveBlurPanels.collectAsStateWithLifecycle()
+    val canvasPanelDefaultBackdrop by AppSettings.canvasPanelDefaultBackdrop.collectAsStateWithLifecycle()
     val legacyMeshGradient by AppSettings.legacyMeshGradient.collectAsStateWithLifecycle()
     val syncedLyrics by AppSettings.syncedLyrics.collectAsStateWithLifecycle()
     val lyricStrip by AppSettings.lyricStrip.collectAsStateWithLifecycle()
@@ -2019,6 +2020,21 @@ fun SettingsScreen(
                     onClick = { AppSettings.setCanvasLiveBlurPanels(!canvasLiveBlurPanels) },
                 )
             }
+            val canvasPanelDefaultBackdropTitle = stringResource(R.string.canvas_panel_default_backdrop)
+            row(canvasPanelDefaultBackdropTitle, "canvas", "backdrop", "blur", "mesh", "lyrics", "queue", "player") {
+                SettingsRow(
+                    icon = SfIcons.Gradient,
+                    title = canvasPanelDefaultBackdropTitle,
+                    subtitle = stringResource(R.string.canvas_panel_default_backdrop_subtitle),
+                    trailing = {
+                        IosSwitch(
+                            checked = canvasPanelDefaultBackdrop,
+                            onCheckedChange = AppSettings::setCanvasPanelDefaultBackdrop,
+                        )
+                    },
+                    onClick = { AppSettings.setCanvasPanelDefaultBackdrop(!canvasPanelDefaultBackdrop) },
+                )
+            }
             val legacyMeshGradientTitle = stringResource(R.string.legacy_mesh_gradient)
             row(legacyMeshGradientTitle, "background", "player") {
                 SettingsRow(
@@ -2067,6 +2083,8 @@ fun SettingsScreen(
                 )
             }
         }
+
+        if (section == SettingsCategory.ABOUT) AboutContent(version = version)
 
         // Read after every group above has had its turn at the query, which is
         // what makes this an accurate "nothing here" rather than a guess.
@@ -3285,6 +3303,7 @@ enum class SettingsCategory(@param:StringRes val title: Int) {
     YOUR_DATA(R.string.your_data),
     LANGUAGE(R.string.language),
     ADVANCED(R.string.advanced_options),
+    ABOUT(R.string.about_app),
     ;
 
     val icon: ImageVector
@@ -3300,6 +3319,7 @@ enum class SettingsCategory(@param:StringRes val title: Int) {
             YOUR_DATA -> SfIcons.YourData
             LANGUAGE -> SfIcons.Language
             ADVANCED -> SfIcons.Advanced
+            ABOUT -> SfIcons.Info
         }
 }
 

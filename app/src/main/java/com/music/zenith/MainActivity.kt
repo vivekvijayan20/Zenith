@@ -170,6 +170,7 @@ import com.music.zenith.ui.navigation.AppDestination
 import com.music.zenith.ui.components.CoverFlightHost
 import com.music.zenith.ui.components.CoverFlightLayer
 import com.music.zenith.ui.components.LocalCoverVisibilityScope
+import com.music.zenith.ui.components.LocalPageRevisit
 import com.music.zenith.ui.navigation.AppRoute
 import com.music.zenith.ui.screens.EqualizerPresetPage
 import com.music.zenith.ui.screens.SettingsChoiceKind
@@ -514,11 +515,12 @@ class MainActivity : AppCompatActivity() {
                     LocalMostPlayedArt provides { covers, motion, modifier ->
                         MostPlayedArt(covers, motion, modifier)
                     },
-                    LocalMixCoverBackground provides { colors, motion, modifier ->
+                    LocalMixCoverBackground provides { colors, motion, seed, modifier ->
                         OrganicFluidBackground(
                             modifier = modifier,
                             colors = colors,
                             animationSpeed = if (motion) 2.2f else 0f,
+                            seed = seed,
                         )
                     },
                     LocalAppBackdrop provides appBackdrop,
@@ -4328,9 +4330,13 @@ private fun ZenithApp(
                     // the background, or this page on its way out: each frame of
                     // them redraws the page under the glass, for nobody.
                     val barsMotion = artworkMotion && transition.targetState == EnterExitState.Visible
+                    // Dibaca sebelum key dicatat di bawah: sudah tercatat berarti
+                    // halaman ini masih di stack dan sedang didatangi kembali.
+                    val revisit = remember(key) { key in pageKeysSeen }
                     CompositionLocalProvider(
                         LocalPlayingBarsMotion provides barsMotion,
                         LocalCoverVisibilityScope provides this@AnimatedContent,
+                        LocalPageRevisit provides revisit,
                     ) {
                         if (destination is AppDestination.Tab) {
                             pageContent()
@@ -4735,6 +4741,35 @@ private fun ZenithApp(
                                         tint = MaterialTheme.colorScheme.onSurface,
                                     )
                                 }
+                                }
+                                // Share sits left of the ••• while the pill is at rest, in
+                                // the same pill. Tapping ••• unfolds the bar, and Share folds
+                                // away with it: the overflow it opens already carries Share.
+                                val shareableRelease = isReleaseDetail &&
+                                    (detail.type == BrowseType.ALBUM || detail.type == BrowseType.PLAYLIST) &&
+                                    !detail.browseId.startsWith("local:") &&
+                                    !detail.browseId.startsWith(SPOTIFY_PAGE_PREFIX)
+                                ActionReveal(visible = !actionsOpen && shareableRelease) {
+                                    IconButton(
+                                        onClick = {
+                                            val url = if (detail.type == BrowseType.PLAYLIST) {
+                                                "https://music.youtube.com/playlist?list=${detail.browseId.removePrefix("VL")}"
+                                            } else {
+                                                "https://music.youtube.com/browse/${detail.browseId}"
+                                            }
+                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, url)
+                                            }
+                                            context.startActivity(Intent.createChooser(sendIntent, detail.title))
+                                        },
+                                    ) {
+                                        Icon(
+                                            SfIcons.Share,
+                                            contentDescription = stringResource(R.string.share),
+                                            tint = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
                                 }
                                 // The same ••• is both the unfold button at rest and the
                                 // overflow once open: the bar grows to its left, so it
