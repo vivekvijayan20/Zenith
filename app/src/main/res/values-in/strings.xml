@@ -146,6 +146,7 @@
     <string name="spatial_audio_atmos_subtitle">Dijeda untuk lagu ini — Dolby Atmos sudah spasial</string>
     <string name="spatial_audio_prefer_off">Pilih Audio Spasial Mati</string>
     <string name="spatial_audio_prefer_on">Pilih Audio Spasial Nyala</string>
+    <string name="spatial_audio_this_song_only">Hanya berlaku untuk lagu ini</string>
     <string name="animated_cover_cellular">Putar sampul animasi lewat data seluler</string>
     <string name="replay">Replay</string>
     <string name="replay_subtitle">Lagu, artis, album, dan genre teratas Anda</string>

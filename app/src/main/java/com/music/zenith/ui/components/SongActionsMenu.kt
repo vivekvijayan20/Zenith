@@ -452,6 +452,7 @@ fun SongActionsMenu(
                     label = stringResource(
                         if (spatialAudioOn) R.string.spatial_audio_prefer_off else R.string.spatial_audio_prefer_on,
                     ),
+                    description = stringResource(R.string.spatial_audio_this_song_only),
                     accent = palette.accent,
                     onClick = it,
                 )
