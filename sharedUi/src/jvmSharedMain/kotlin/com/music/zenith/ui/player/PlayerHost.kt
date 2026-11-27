@@ -72,6 +72,9 @@ interface PlayerHost {
     /** The heights the playing music video offers, and which one is held. */
     val musicVideoQuality: StateFlow<MusicVideoQualityUi> get() = NoVideoQuality
 
+    /** Music videos shown over another version's audio, by the id of that audio. */
+    val musicVideoCompanions: StateFlow<Map<String, String>> get() = NoCompanions
+
     /** Holds the picture at [height] from now on, or lets it choose with null. Remembered. */
     fun setMusicVideoQuality(height: Int?) = Unit
 
@@ -175,6 +178,8 @@ private val NoCast = MutableStateFlow(CastUi())
 private val DefaultVideoAspect = MutableStateFlow(16f / 9f)
 
 private val NoVideoQuality = MutableStateFlow(MusicVideoQualityUi())
+
+private val NoCompanions = MutableStateFlow<Map<String, String>>(emptyMap())
 
 /** What the video quality box draws — the web player's VideoQuality, by the same rules. */
 data class MusicVideoQualityUi(

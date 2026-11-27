@@ -72,6 +72,7 @@ import com.music.zenith.ui.haptics.Haptic
 import com.music.zenith.ui.haptics.rememberHaptics
 import com.music.zenith.ui.player.PlayerDock
 import com.music.zenith.ui.player.AndroidMusicVideo
+import com.music.zenith.ui.player.rememberShowsPicture
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.fillMaxSize
@@ -461,11 +462,11 @@ private fun GlassNowPlaying(
         ) {
             // A music video plays in the cover's place at its own 16:9, as in
             // the floating mini player; the full player takes it over when up.
+            val hasPicture = rememberShowsPicture(song)
             val artWidth by animateDpAsState(
                 targetValue = if (
-                    song.isVideo && !VideoThumbnails.square &&
-                    !com.music.zenith.data.settings.AppSettings.stillVideoCovers.value &&
-                    MusicOnlyPlayback.showsPicture(song.videoId)
+                    hasPicture && !VideoThumbnails.square &&
+                    !com.music.zenith.data.settings.AppSettings.stillVideoCovers.value
                 ) ACCESSORY_ART_SIZE * (16f / 9f) else ACCESSORY_ART_SIZE,
                 label = "glassMiniArtWidth",
             )
@@ -484,7 +485,7 @@ private fun GlassNowPlaying(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (song.isVideo && MusicOnlyPlayback.showsPicture(song.videoId)) {
+                if (hasPicture) {
                     AndroidMusicVideo(
                         videoId = song.videoId,
                         fit = false,

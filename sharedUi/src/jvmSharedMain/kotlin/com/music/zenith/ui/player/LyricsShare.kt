@@ -39,6 +39,7 @@ import com.music.zenith.data.lyrics.LyricLine
 import com.music.zenith.data.model.Song
 import com.music.zenith.sharedui.resources.Res
 import com.music.zenith.sharedui.resources.cancel
+import com.music.zenith.sharedui.resources.lyrics_share_pick_in_row
 import com.music.zenith.sharedui.resources.lyrics_share_pick_limit
 import com.music.zenith.sharedui.resources.share
 import com.music.zenith.ui.haptics.Haptic
@@ -96,8 +97,14 @@ internal fun singWindow(lines: List<LyricLine>, index: Int, nextPicked: Int?): P
     val line = lines.getOrNull(index) ?: return null
     val start = line.timeMs.coerceAtLeast(0L)
     val nextStamp = lines.getOrNull(index + 1)?.timeMs?.takeIf { it > start }
-    val end = if (nextPicked == index + 1 && nextStamp != null) {
-        nextStamp
+    // The next picked line, when it follows this one (possibly across an
+    // instrumental gap): the take runs straight on to where it is sung.
+    val joinedStamp = nextPicked
+        ?.takeIf { runsOn(lines, index, it) }
+        ?.let { lines.getOrNull(it)?.timeMs }
+        ?.takeIf { it > start }
+    val end = if (joinedStamp != null) {
+        joinedStamp
     } else {
         val tail = line.sungUntilMs?.takeIf { it > start }?.plus(SHARE_TAIL_MS)
             ?: nextStamp
@@ -140,6 +147,15 @@ const val SHARE_CARD_CHAR_BUDGET = 250
  */
 fun fitsOnCard(taken: Int, text: String?): Boolean =
     taken + (text?.length ?: 0) <= SHARE_CARD_CHAR_BUDGET
+
+/**
+ * Whether line [to] follows line [from] as one run: nothing between them but
+ * instrumental gaps, which are never picked and so cannot break a pick. A pick
+ * made of such runs is one stretch of the song, which is what keeps the share
+ * video from jumping.
+ */
+internal fun runsOn(lines: List<LyricLine>, from: Int, to: Int): Boolean =
+    from < to && (from + 1 until to).all { lines.getOrNull(it)?.isGap == true }
 
 /**
  * Whether lines can be put on a card at all here.
@@ -199,6 +215,7 @@ internal fun rememberLyricsPicker(
     // Said once, when a line is refused, and gone by the time the finger moves
     // on — the way every other refusal in this player is worded.
     val cardFullMessage = stringResource(Res.string.lyrics_share_pick_limit)
+    val inRowMessage = stringResource(Res.string.lyrics_share_pick_in_row)
 
     // Whether the reader is picking lines for a share card, and which ones.
     // Kept as two values rather than as `Set<Int>?`: the mode opens with nothing
@@ -226,11 +243,27 @@ internal fun rememberLyricsPicker(
         picks.sumOf { index -> lines.orEmpty().getOrNull(index)?.text?.length ?: 0 }
     }
     val toggle: (Int) -> Unit = { index ->
-        val text = lines.orEmpty().getOrNull(index)?.text
+        val source = lines.orEmpty()
+        val text = source.getOrNull(index)?.text
+        val first = picks.minOrNull()
+        val last = picks.maxOrNull()
         when {
+            // Only an end of the run can be dropped: taking out a middle line
+            // would split the pick, and a split pick plays as a jump in the audio.
             index in picks -> {
-                picks = picks - index
-                overBudget = false
+                if (index == first || index == last) {
+                    picks = picks - index
+                    overBudget = false
+                } else {
+                    PlayerPlatform.host.showMessage(inRowMessage)
+                }
+            }
+
+            // A new line must touch the run (instrumental gaps do not break it),
+            // so the card is always one stretch of the song.
+            first != null && last != null &&
+                !runsOn(source, last, index) && !runsOn(source, index, first) -> {
+                PlayerPlatform.host.showMessage(inRowMessage)
             }
 
             fitsOnCard(usedChars(), text) -> {
@@ -290,7 +323,7 @@ internal fun rememberLyricsPicker(
                 // A jump over unchosen lines is marked on the card, so the
                 // picture says the verse was cut here rather than letting two
                 // distant halves read as if they ran on from each other.
-                if (position > 0 && index > chosen[position - 1] + 1) {
+                if (position > 0 && !runsOn(source, chosen[position - 1], index)) {
                     add(LyricsShareLine(text = "", subText = null, isGap = true))
                 }
                 val line = source.getOrNull(index) ?: return@forEachIndexed

@@ -519,6 +519,12 @@ enum class SongSort {
     DEFAULT,
     TITLE_ASC,
     TITLE_DESC,
+
+    /** Artist A to Z, then album, then the running order. */
+    ARTIST_ASC,
+
+    /** Album A to Z, then the running order — a release stays in its own track order. */
+    ALBUM_ASC,
     DATE_ADDED_ASC,
     DATE_ADDED_DESC,
 }
@@ -915,6 +921,9 @@ object AppSettings {
 
     /** Shows the Zenith mark on the shared lyrics card. */
     val lyricsCardLogo = MutableStateFlow(true)
+
+    /** Shows the playing track's quality (Dolby Atmos, Hi-Res Lossless, Lossless) under the artist on the shared lyrics card. */
+    val lyricsCardQuality = MutableStateFlow(true)
 
     /** Removes music videos from Home, plus any row left with nothing else in it. */
     val hideHomeVideos = MutableStateFlow(false)
@@ -1672,6 +1681,7 @@ object AppSettings {
         hideHomeRecents.value = prefs.getBoolean(KEY_HIDE_HOME_RECENTS, false)
         hideHomeBranding.value = prefs.getBoolean(KEY_HIDE_HOME_BRANDING, false)
         lyricsCardLogo.value = prefs.getBoolean(KEY_LYRICS_CARD_LOGO, true)
+        lyricsCardQuality.value = prefs.getBoolean(KEY_LYRICS_CARD_QUALITY, true)
         hideHomeVideos.value = prefs.getBoolean(KEY_HIDE_HOME_VIDEOS, false)
         hideHomeTopPicks.value = prefs.getBoolean(KEY_HIDE_HOME_TOP_PICKS, false)
         hideHomeMoods.value = prefs.getBoolean(KEY_HIDE_HOME_MOODS, false)
@@ -2300,6 +2310,11 @@ object AppSettings {
     fun setLyricsCardLogo(value: Boolean) {
         lyricsCardLogo.value = value
         prefs.edit().putBoolean(KEY_LYRICS_CARD_LOGO, value).apply()
+    }
+
+    fun setLyricsCardQuality(value: Boolean) {
+        lyricsCardQuality.value = value
+        prefs.edit().putBoolean(KEY_LYRICS_CARD_QUALITY, value).apply()
     }
 
     fun setHideHomeBranding(value: Boolean) {
@@ -3564,6 +3579,7 @@ object AppSettings {
     private const val KEY_HIDE_HOME_RECENTS = "hide_home_recents"
     private const val KEY_HIDE_HOME_BRANDING = "hide_home_branding"
     private const val KEY_LYRICS_CARD_LOGO = "lyrics_card_logo"
+    private const val KEY_LYRICS_CARD_QUALITY = "lyrics_card_quality"
     private const val KEY_HIDE_HOME_VIDEOS = "hide_home_videos"
     private const val KEY_HIDE_HOME_TOP_PICKS = "hide_home_top_picks"
     private const val KEY_HIDE_HOME_MOODS = "hide_home_moods"

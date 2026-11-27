@@ -35,7 +35,9 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.metrolist.innertubex.extraction.StreamResolveException
 import com.music.zenith.data.Http
 import com.music.zenith.data.TrackLog
+import com.music.zenith.data.YtMusicRepository
 import com.music.zenith.data.innertube.InnerTubeXResolver
+import com.music.zenith.playback.smart.VersionAudioAligner
 import com.music.zenith.playback.MusicOnlyPlayback
 import com.music.zenith.data.model.Song
 import com.music.zenith.data.settings.AppSettings
@@ -51,6 +53,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -147,6 +150,67 @@ object MusicVideoEngine {
         }
     }
 
+    private val _companions = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /**
+     * Music videos shown over another version's audio, by the id of the audio
+     * playing. The song keeps its own sound, lyrics and queue row; only the
+     * picture comes from the video. See [showPictureOver].
+     */
+    val companions: StateFlow<Map<String, String>> = _companions.asStateFlow()
+
+    /** Set once a listener has asked for a video, so the next song's is found ahead of the tap. */
+    private var prefetchNext = false
+    private var prefetchJob: Job? = null
+
+    /** Shows [videoId]'s picture over [audioId]'s audio, which keeps playing untouched. Main thread. */
+    fun showPictureOver(audioId: String, videoId: String) {
+        if (audioId == videoId) return
+        noPicture -= videoId
+        _companions.update { it + (audioId to videoId) }
+        prefetchNext = true
+        refresh()
+    }
+
+    /** Takes the picture away: the song is back on its cover. Main thread. */
+    fun hidePictureOver(audioId: String) {
+        if (audioId !in _companions.value) return
+        _companions.update { it - audioId }
+        refresh()
+    }
+
+    /** A video that can't be shown no longer holds the player in video mode. */
+    private fun forgetCompanion(videoId: String) {
+        if (_companions.value.containsValue(videoId)) {
+            _companions.update { map -> map.filterValues { it != videoId } }
+        }
+    }
+
+    /**
+     * Once a video has been asked for, the next song's video is found and its
+     * stream resolved while that song plays, so switching there is a tap and
+     * not a wait. Never on a metered connection.
+     */
+    private fun prefetchFor(mediaItem: MediaItem?) {
+        if (!prefetchNext || AppSettings.meteredConnection.value == true) return
+        val song = mediaItem?.toSong() ?: return
+        if (song.isVideo || song.localUri != null) return
+        prefetchJob?.cancel()
+        prefetchJob = scope.launch {
+            try {
+                val video = YtMusicRepository.resolveVideo(song) ?: return@launch
+                val cap = capFor(video.videoId)
+                if (cachedStream(video.videoId, cap) != null) return@launch
+                val stream = resolve(video.videoId, cap) ?: return@launch
+                streams[video.videoId] = Triple(stream, cap, System.currentTimeMillis())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A failed prefetch costs nothing: the switch itself asks again.
+            }
+        }
+    }
+
     private val _shownVideoId = MutableStateFlow<String?>(null)
 
     /** The video whose frames are on screen now, once its first one has landed. */
@@ -181,7 +245,16 @@ object MusicVideoEngine {
     val aspect: StateFlow<Float> = _aspect.asStateFlow()
 
     private val controllerListener = object : Player.Listener {
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = refresh()
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // A companion picture belongs to the song it was chosen on: the
+            // next track starts on its own cover again.
+            val current = mediaItem?.mediaId
+            if (_companions.value.keys.any { it != current }) {
+                _companions.update { map -> map.filterKeys { it == current } }
+            }
+            refresh()
+            prefetchFor(mediaItem)
+        }
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _playing.value = isPlaying
             sync()
@@ -243,6 +316,7 @@ object MusicVideoEngine {
                 return
             }
             noPicture += id
+            forgetCompanion(id)
             unload()
         }
     }
@@ -318,27 +392,43 @@ object MusicVideoEngine {
         }
     }
 
-    /** The track the picture should be of: the controller's, when it is a music video. */
-    private fun wanted(): Song? {
+    /** The video whose picture should show: the one chosen over the audio, else the controller's own music video. */
+    private fun wanted(): String? {
         val song = controller?.currentMediaItem?.toSong() ?: return null
-        return song.takeIf {
-            it.isVideo && it.videoId !in noPicture && MusicOnlyPlayback.showsPicture(it.videoId)
+        _companions.value[song.videoId]?.let { companion ->
+            return companion.takeIf { it !in noPicture }
+        }
+        return song.videoId.takeIf {
+            song.isVideo && it !in noPicture && MusicOnlyPlayback.showsPicture(it)
         }
     }
 
+    /**
+     * Where in the picture the audio's [audioMs] falls. A video that is the
+     * playing row matches one to one; a companion is another cut, so it goes
+     * through YouTube's own time map, else a measured offset, else none.
+     */
+    private fun pictureMs(audioMs: Long): Long {
+        val audioId = controller?.currentMediaItem?.mediaId ?: return audioMs
+        val pictureId = _companions.value[audioId] ?: return audioMs
+        YtMusicRepository.versionTimeMap(audioId, pictureId)?.let { return it.map(audioMs) }
+        val offset = VersionAudioAligner.getCachedOffsetMs(audioId, pictureId) ?: 0L
+        return (audioMs + offset).coerceAtLeast(0L)
+    }
+
     private fun refresh() {
-        val song = if (surfaces.isEmpty()) null else wanted()
-        if (song == null) {
+        val id = if (surfaces.isEmpty()) null else wanted()
+        if (id == null) {
             // The picture is kept through the grace period after its last
             // surface goes; a track change to one with none drops it now.
-            if (surfaces.isNotEmpty() || wanted()?.videoId != loadedId) unload()
+            if (surfaces.isNotEmpty() || wanted() != loadedId) unload()
             return
         }
-        if (song.videoId == loadedId) {
+        if (id == loadedId) {
             startSync()
             return
         }
-        load(song.videoId)
+        load(id)
     }
 
     /**
@@ -412,7 +502,10 @@ object MusicVideoEngine {
                 // Settled until something changes it: the age gate by a sign-in
                 // (which clears [noPicture]), the rest not at all. A network
                 // failure is asked again on the next surface or track change.
-                if (e.reason != StreamResolveException.Reason.NETWORK) noPicture += videoId
+                if (e.reason != StreamResolveException.Reason.NETWORK) {
+                    noPicture += videoId
+                    forgetCompanion(videoId)
+                }
                 return@launch
             } catch (e: Exception) {
                 // Not remembered as pictureless: the next surface or track
@@ -425,6 +518,7 @@ object MusicVideoEngine {
             // A catalogue track's "video" is its cover held still; nothing to show.
             if (stream == null || stream.aspect < MIN_VIDEO_ASPECT) {
                 noPicture += videoId
+                forgetCompanion(videoId)
                 loadedId = null
                 return@launch
             }
@@ -436,7 +530,7 @@ object MusicVideoEngine {
             if (stream.aspect > 0f) _aspect.value = stream.aspect
             _quality.value = _quality.value.copy(heights = stream.heights, activeHeight = stream.height)
             loadedProfile = stream.profileId
-            val start = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
+            val start = pictureMs(controller?.currentPosition?.coerceAtLeast(0L) ?: 0L)
             exo.setMediaSource(source, start + seekLeadMs)
             exo.playWhenReady = controller?.isPlaying == true
             exo.prepare()
@@ -488,7 +582,7 @@ object MusicVideoEngine {
         val exo = player ?: return
         if (loadedId == null || exo.playbackState == Player.STATE_IDLE || exo.playbackState == Player.STATE_ENDED) return
         val speed = audio.playbackParameters.speed
-        val audioPos = audio.currentPosition
+        val audioPos = pictureMs(audio.currentPosition)
         val now = System.currentTimeMillis()
         if (!audio.isPlaying) {
             exo.playWhenReady = false
@@ -546,6 +640,14 @@ object MusicVideoEngine {
     )
 }
 
+/** Whether [song] shows a picture: a music video of its own, or one chosen over its audio. */
+@Composable
+internal fun rememberShowsPicture(song: Song): Boolean {
+    val companions by MusicVideoEngine.companions.collectAsStateWithLifecycle()
+    return song.videoId in companions ||
+        (song.isVideo && MusicOnlyPlayback.showsPicture(song.videoId))
+}
+
 /**
  * Where the playing music video shows: [videoId]'s picture, fitted into or
  * cropped to these bounds. Shows nothing until a frame of that video has
@@ -573,7 +675,9 @@ internal fun AndroidMusicVideo(
     val shown by MusicVideoEngine.shownVideoId.collectAsStateWithLifecycle()
     val frameOn by MusicVideoEngine.frameOn.collectAsStateWithLifecycle()
     val aspect by MusicVideoEngine.aspect.collectAsStateWithLifecycle()
-    val rendered = view != null && frameOn === view && shown == videoId
+    val companions by MusicVideoEngine.companions.collectAsStateWithLifecycle()
+    val pictureId = companions[videoId] ?: videoId
+    val rendered = view != null && frameOn === view && shown == pictureId
     val playing by MusicVideoEngine.playing.collectAsStateWithLifecycle()
 
     // A video being watched keeps the screen awake, as any video player does —

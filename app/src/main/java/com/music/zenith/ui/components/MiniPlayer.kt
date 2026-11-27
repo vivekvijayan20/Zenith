@@ -79,6 +79,7 @@ import com.music.zenith.ui.haptics.Haptic
 import com.music.zenith.ui.haptics.rememberHaptics
 import com.music.zenith.ui.player.PlayerDock
 import com.music.zenith.ui.player.AndroidMusicVideo
+import com.music.zenith.ui.player.rememberShowsPicture
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.animation.core.animateDpAsState
@@ -551,11 +552,11 @@ fun MiniPlayer(
         ) {
             // A music video plays here at its own 16:9, as the web player's
             // mini player does, rather than cropped into the square cover.
+            val hasPicture = rememberShowsPicture(song)
             val artWidth by animateDpAsState(
                 targetValue = if (
-                    song.isVideo && !VideoThumbnails.square &&
-                    !AppSettings.stillVideoCovers.value &&
-                    MusicOnlyPlayback.showsPicture(song.videoId)
+                    hasPicture && !VideoThumbnails.square &&
+                    !AppSettings.stillVideoCovers.value
                 ) VIDEO_ART_WIDTH else 40.dp,
                 label = "miniArtWidth",
             )
@@ -576,7 +577,7 @@ fun MiniPlayer(
                 // A music video keeps playing in the cover's place, cropped to
                 // it, as the web player's mini player does — the full player,
                 // when it is up, takes the picture over.
-                if (song.isVideo && MusicOnlyPlayback.showsPicture(song.videoId)) {
+                if (hasPicture) {
                     AndroidMusicVideo(
                         videoId = song.videoId,
                         fit = false,

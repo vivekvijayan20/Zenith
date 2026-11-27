@@ -576,6 +576,7 @@
     <string name="lyrics_share_story">Jadikan story</string>
     <string name="lyrics_share_story_revert">Kembali ke kartu</string>
     <string name="lyrics_share_show_logo">Tampilkan logo Zenith</string>
+    <string name="lyrics_share_show_quality">Tampilkan kualitas audio</string>
     <string name="lyrics_share_video">Video</string>
     <string name="lyrics_share_image">Gambar</string>
     <string name="lyrics_share_cover">Sampul</string>
@@ -627,6 +628,8 @@
     <string name="sort_music">Urutkan musik</string>
     <string name="sort_title_ascending">Alfabet (A ke Z)</string>
     <string name="sort_title_descending">Alfabet (Z ke A)</string>
+    <string name="sort_artist_ascending">Artis (A ke Z)</string>
+    <string name="sort_album_ascending">Album (A ke Z)</string>
     <string name="sort_date_added">Tanggal ditambahkan (terbaru dahulu)</string>
     <string name="sort_date_modified">Tanggal diubah (terbaru dahulu)</string>
     <string name="use_all_audio_folders">Gunakan semua folder audio</string>

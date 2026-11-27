@@ -818,6 +818,7 @@
     <string name="lyrics_share_description">선택한 줄을 커버와 함께 카드로 만들어요.</string>
     <string name="lyrics_share_story">스토리로 만들기</string>
     <string name="lyrics_share_show_logo">Zenith 로고 표시</string>
+    <string name="lyrics_share_show_quality">오디오 품질 표시</string>
     <string name="lyrics_share_story_revert">카드로 돌아가기</string>
     <string name="lyrics_share_video">동영상</string>
     <string name="lyrics_share_image">이미지</string>
@@ -871,6 +872,8 @@
     <string name="sort_music">음악 정렬</string>
     <string name="sort_title_ascending">이름순 (오름차순)</string>
     <string name="sort_title_descending">이름순 (내림차순)</string>
+    <string name="sort_artist_ascending">아티스트순 (오름차순)</string>
+    <string name="sort_album_ascending">앨범순 (오름차순)</string>
     <string name="sort_date_added">추가한 날짜 (최신순)</string>
     <string name="sort_date_added_oldest">추가한 날짜 (오래된 순)</string>
     <string name="sort_date_added_toggle">추가한 날짜</string>

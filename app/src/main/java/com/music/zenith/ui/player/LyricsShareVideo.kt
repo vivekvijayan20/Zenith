@@ -511,8 +511,8 @@ private const val PROBE_TIMEOUT_MS = 10_000L
 /** At quarter size: about the blur the preview draws at full size. */
 private const val BLUR_SIGMA = 12f
 
-/** The clip at 60%: about as dark as the card's own backdrop, so white type reads. */
-private const val DIM = 0.6f
+/** The clip at 38%: darker than the card's own backdrop, so white type reads over a busy canvas. */
+private const val DIM = 0.38f
 
 /** Comfortably past what Instagram re-encodes a 1080p story to. */
 private const val VIDEO_BITRATE = 10_000_000

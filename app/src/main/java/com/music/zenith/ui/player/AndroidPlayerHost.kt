@@ -138,6 +138,8 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
 
     override val musicVideoQuality: StateFlow<MusicVideoQualityUi> get() = MusicVideoEngine.quality
 
+    override val musicVideoCompanions: StateFlow<Map<String, String>> get() = MusicVideoEngine.companions
+
     override fun setMusicVideoQuality(height: Int?) = MusicVideoEngine.setQuality(height)
 
     @Composable

@@ -19,6 +19,9 @@ import com.motion.lyrics.smoothstep
 import com.motion.lyrics.toMotionWords
 import com.music.zenith.data.lyrics.CharGrowth
 import com.music.zenith.data.lyrics.LyricLine
+import androidx.core.content.res.ResourcesCompat
+import com.music.zenith.R
+import com.music.zenith.data.NerdStats
 import com.music.zenith.data.settings.AppSettings
 import com.music.zenith.ui.replay.Fonts
 import com.music.zenith.ui.replay.drawArtwork
@@ -87,6 +90,8 @@ internal suspend fun lyricsCardPainter(
     transparent: Boolean = false,
     /** The Zenith mark at the top right; without it the passage moves up into its room. */
     showLogo: Boolean = true,
+    /** The playing track's quality, small, under the artist; nothing for plain lossy audio. */
+    showQuality: Boolean = true,
 ): LyricsCardPainter = withContext(Dispatchers.Default) {
     val type = Fonts(context)
     val cover = card.artworkUrl?.let { loadBitmap(context, it) }
@@ -141,10 +146,16 @@ internal suspend fun lyricsCardPainter(
     drawArtwork(canvas, cover, card.song.title, CARD_MARGIN, thumbY, FOOTER_THUMB, false, 0.12f)
     val textX = CARD_MARGIN + FOOTER_THUMB + 34f
     val room = CARD_W - CARD_MARGIN - textX
+    val quality = if (showQuality) shareQualityOf(card) else null
+    // With a badge under the artist, title and artist rise a little to make room.
+    val lift = if (quality != null) CREDIT_LIFT else 0f
     val title = type.body(50f, Color.WHITE, bold = true)
-    canvas.drawText(ellipsised(card.song.title, title, room), textX, thumbY + 74f, title)
+    canvas.drawText(ellipsised(card.song.title, title, room), textX, thumbY + 74f - lift, title)
     val artist = type.body(42f, 0x99FFFFFF.toInt())
-    canvas.drawText(ellipsised(card.song.artist, artist, room), textX, thumbY + 132f, artist)
+    canvas.drawText(ellipsised(card.song.artist, artist, room), textX, thumbY + 132f - lift, artist)
+    if (quality != null) {
+        drawQualityBadge(canvas, context, type, quality, textX, thumbY + FOOTER_THUMB, room)
+    }
 
     // The lyric effect follows what the user has chosen in Settings.
     LyricsCardPainter(
@@ -174,6 +185,60 @@ internal suspend fun renderLyricsShareBackdrop(
 
 /** A row of the passage, and where it sits on the card. */
 internal class PlacedRow internal constructor(val row: Row, val x: Float, val baseline: Float)
+
+private enum class ShareQuality { ATMOS, HI_RES, LOSSLESS }
+
+/**
+ * What the player is measuring on the track being shared: the decoder's own
+ * figures, never what a source merely advertised. Null for lossy audio, or
+ * when the measured stream belongs to a different track.
+ */
+private fun shareQualityOf(card: LyricsShareRequest): ShareQuality? {
+    val stats = NerdStats.current.value ?: return null
+    if (stats.mediaId != null && stats.mediaId != card.song.videoId) return null
+    return when {
+        stats.isDolbyAtmos -> ShareQuality.ATMOS
+        stats.isHiRes -> ShareQuality.HI_RES
+        stats.isLossless -> ShareQuality.LOSSLESS
+        else -> null
+    }
+}
+
+/** A small mark and label on [baseline], starting at [x], trimmed to [room]. */
+private fun drawQualityBadge(
+    canvas: Canvas,
+    context: Context,
+    type: Fonts,
+    quality: ShareQuality,
+    x: Float,
+    baseline: Float,
+    room: Float,
+) {
+    val (iconRes, label) = when (quality) {
+        ShareQuality.ATMOS -> R.drawable.ic_dolby_atmos to context.getString(R.string.dolby_atmos)
+        ShareQuality.HI_RES -> R.drawable.ic_lossless_wave to context.getString(R.string.lyrics_share_hi_res)
+        ShareQuality.LOSSLESS -> R.drawable.ic_lossless_wave to context.getString(R.string.lossless)
+    }
+    val paint = type.body(BADGE_TEXT, BADGE_COLOR)
+    val cap = android.graphics.Rect().also { paint.getTextBounds("L", 0, 1, it) }.height().toFloat()
+    var textX = x
+    val icon = runCatching { ResourcesCompat.getDrawable(context.resources, iconRes, null) }.getOrNull()
+    if (icon != null) {
+        val h = cap * 0.9f
+        val w = h * icon.intrinsicWidth / icon.intrinsicHeight.coerceAtLeast(1)
+        val top = baseline - cap / 2f - h / 2f
+        icon.setTint(BADGE_COLOR)
+        icon.setBounds(Math.round(x), Math.round(top), Math.round(x + w), Math.round(top + h))
+        icon.draw(canvas)
+        textX = x + w + BADGE_GAP
+    }
+    canvas.drawText(ellipsised(label, paint, room - (textX - x)), textX, baseline, paint)
+}
+
+private const val CREDIT_LIFT = 14f
+private const val BADGE_TEXT = 30f
+private const val BADGE_GAP = 12f
+private val BADGE_COLOR = 0x99FFFFFF.toInt()
 
 internal class CardLayout internal constructor(
     val width: Int,

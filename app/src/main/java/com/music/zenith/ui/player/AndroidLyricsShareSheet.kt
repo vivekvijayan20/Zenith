@@ -123,14 +123,20 @@ internal fun AndroidLyricsShareSheet(
     // preview runs it on the song's own clock, so what is shared is what was seen.
     var painter by remember(request) { mutableStateOf<LyricsCardPainter?>(null) }
     val showLogo by AppSettings.lyricsCardLogo.collectAsStateWithLifecycle()
+    val showQuality by AppSettings.lyricsCardQuality.collectAsStateWithLifecycle()
 
-    LaunchedEffect(request, story, activeClip != null, showLogo) {
+    LaunchedEffect(request, story, activeClip != null, showLogo, showQuality) {
         image = null
         painter = null
         failed = false
         saved = false
         runCatching {
-            val paint = lyricsCardPainter(context, request, story, transparent = activeClip != null, showLogo = showLogo)
+            val paint = lyricsCardPainter(
+                context, request, story,
+                transparent = activeClip != null,
+                showLogo = showLogo,
+                showQuality = showQuality,
+            )
             image = withContext(Dispatchers.Default) { paint.render(null) }
             painter = paint
         }.onFailure { failed = true }
@@ -140,13 +146,18 @@ internal fun AndroidLyricsShareSheet(
     var exporting by remember(request) { mutableStateOf(false) }
     var exported by remember(request) { mutableStateOf<Pair<Any?, File>?>(null) }
     suspend fun videoFile(): File? {
-        val look = listOf(activeClip, story, showLogo)
+        val look = listOf(activeClip, story, showLogo, showQuality)
         exported?.takeIf { it.first == look && it.second.exists() }?.let { return it.second }
         exporting = true
         return try {
             // The export lays its own background (the clip, or the cover), so
             // the card it is handed is always the bare one.
-            val overlay = lyricsCardPainter(context, request, story, transparent = true, showLogo = showLogo)
+            val overlay = lyricsCardPainter(
+                context, request, story,
+                transparent = true,
+                showLogo = showLogo,
+                showQuality = showQuality,
+            )
             exportLyricsVideo(context, request, activeClip, overlay, portrait = story)
                 ?.also { exported = look to it }
         } finally {
@@ -274,6 +285,31 @@ internal fun AndroidLyricsShareSheet(
                 )
                 // The row is the toggle; the switch only shows its state.
                 IosSwitch(checked = showLogo, onCheckedChange = null)
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .toggleable(
+                        value = showQuality,
+                        role = Role.Switch,
+                        onValueChange = {
+                            haptics.play(Haptic.Tap)
+                            AppSettings.setLyricsCardQuality(it)
+                        },
+                    )
+                    .padding(start = 22.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.lyrics_share_show_quality),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f),
+                )
+                IosSwitch(checked = showQuality, onCheckedChange = null)
             }
 
             if (failed) {
@@ -438,7 +474,7 @@ private const val PREVIEW_SCREEN_SHARE = 0.3f
 private const val PREVIEW_REST_MS = 1_200L
 
 /** The black over the clip in the preview: the export's 60% dim. */
-private const val CLIP_SCRIM = 0.4f
+private const val CLIP_SCRIM = 0.62f
 
 /** About the blur the export draws, at the preview's size. */
 private val PREVIEW_BLUR = 10.dp

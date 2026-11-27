@@ -1596,10 +1596,45 @@ private fun DetailSearchField(
     }
 }
 
+/**
+ * Orders [Song]s by a text field with the locale's own collation, so accented
+ * and non-Latin names land where a reader expects. A blank value sorts after
+ * every named one: a playlist full of tracks with no album must not open with them.
+ */
+private fun textOrder(key: (Song) -> String?): Comparator<Song> {
+    val collator = java.text.Collator.getInstance().apply { strength = java.text.Collator.SECONDARY }
+    return Comparator { a, b ->
+        val x = key(a)?.trim().orEmpty()
+        val y = key(b)?.trim().orEmpty()
+        when {
+            x.isEmpty() && y.isEmpty() -> 0
+            x.isEmpty() -> 1
+            y.isEmpty() -> -1
+            else -> collator.compare(x, y)
+        }
+    }
+}
+
+/** Sorts by [keys] in turn; what they leave tied keeps its place in the running order. */
+private fun List<Song>.sortedByKeys(vararg keys: (Song) -> String?): List<Song> {
+    val orders = keys.map { textOrder(it) }
+    return withIndex()
+        .sortedWith(
+            Comparator { a, b ->
+                orders.firstNotNullOfOrNull { order ->
+                    order.compare(a.value, b.value).takeIf { it != 0 }
+                } ?: a.index.compareTo(b.index)
+            },
+        )
+        .map { it.value }
+}
+
 internal fun List<Song>.sortedForDetail(sort: SongSort): List<Song> = when (sort) {
     SongSort.DEFAULT -> this
     SongSort.TITLE_ASC -> sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
     SongSort.TITLE_DESC -> sortedWith(compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.title })
+    SongSort.ARTIST_ASC -> sortedByKeys({ it.artist }, { it.albumName })
+    SongSort.ALBUM_ASC -> sortedByKeys({ it.albumName })
     // A catalogue row carries no added date, so its place in the running
     // order stands in for one: a playlist is appended to as songs are added,
     // and reversed that puts the most recent addition on top. Rows that do

@@ -357,10 +357,21 @@ private const val EDGE_ROWS_SHARE = 0.04f
 private const val EDGE_SIDE_SHARE = 0.08f
 private const val EDGE_MAX_LIGHTNESS = 0.52f
 private const val EDGE_MEAN_MIX = 0.5f
+private const val EDGE_MEAN_MIX_DARK = 0.12f
+private const val EDGE_DARK_LIGHTNESS = 0.10f
+private const val EDGE_DARK_FADE_LIGHTNESS = 0.32f
+private const val EDGE_TINT_MIX_DARK = 0.06f
 private const val EDGE_BLUR_DP = 42f
 private const val EDGE_RISE_START = 0.55f
 private const val EDGE_DROP_SHARE = 0.34f
 private const val EDGE_TINT_MIX = 0.3f
+
+/** 0 for a near-black colour, 1 once it is clearly lit; linear in between. */
+private fun Color.edgeLitness(): Float {
+    val lightness = (maxOf(red, green, blue) + minOf(red, green, blue)) / 2f
+    return ((lightness - EDGE_DARK_LIGHTNESS) / (EDGE_DARK_FADE_LIGHTNESS - EDGE_DARK_LIGHTNESS))
+        .coerceIn(0f, 1f)
+}
 private const val EDGE_SMOOTH_MILLIS = 380f
 
 internal fun edgeColorsOf(original: ImageBitmap): List<Color> {
@@ -397,7 +408,12 @@ internal fun edgeColorsOf(original: ImageBitmap): List<Color> {
         (bins.sumOf { it.green.toDouble() } / bins.size).toFloat(),
         (bins.sumOf { it.blue.toDouble() } / bins.size).toFloat(),
     )
-    return bins.map { androidx.compose.ui.graphics.lerp(it, mean, EDGE_MEAN_MIX).edgeTuned() }
+    return bins.map {
+        // Dark bins keep their own colour instead of being pulled toward the
+        // lit bins' average, so black sides stay black next to a white subject.
+        val mix = EDGE_MEAN_MIX_DARK + (EDGE_MEAN_MIX - EDGE_MEAN_MIX_DARK) * it.edgeLitness()
+        androidx.compose.ui.graphics.lerp(it, mean, mix).edgeTuned()
+    }
 }
 
 private fun Color.edgeTuned(): Color {
@@ -439,7 +455,11 @@ fun CoverEdgeBackdrop(
         if (mix == null) {
             source
         } else {
-            source.map { androidx.compose.ui.graphics.lerp(it, mix, EDGE_TINT_MIX) }
+            source.map {
+                // Near-black edges get only a faint tint so they do not turn brown.
+                val amount = EDGE_TINT_MIX_DARK + (EDGE_TINT_MIX - EDGE_TINT_MIX_DARK) * it.edgeLitness()
+                androidx.compose.ui.graphics.lerp(it, mix, amount)
+            }
         }
     }
     // Warna yang benar-benar digambar: mendekati target tiap frame secara
@@ -815,13 +835,20 @@ private fun Color.tuned(): Color {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(toArgb(), hsl)
     hsl[1] = if (hsl[1] < 0.12f) hsl[1] else (hsl[1] * 1.15f).coerceIn(0.48f, 0.80f)
-    hsl[2] = 0.20f + 0.16f * hsl[2].coerceIn(0f, 1f)
+    val source = hsl[2].coerceIn(0f, 1f)
+    // Near-black neutral swatches may sink toward black; the curve meets the
+    // original 0.20 + 0.16 * l mapping at l = 0.15, so nothing jumps.
+    hsl[2] = if (hsl[1] < 0.12f && source < 0.15f) {
+        0.04f + 0.184f * (source / 0.15f)
+    } else {
+        0.20f + 0.16f * source
+    }
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
 private fun Color.dimmed(): Color {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(toArgb(), hsl)
-    hsl[2] = 0.14f
+    hsl[2] = if (hsl[1] < 0.12f && hsl[2] < 0.12f) 0.05f else 0.14f
     return Color(ColorUtils.HSLToColor(hsl))
 }
