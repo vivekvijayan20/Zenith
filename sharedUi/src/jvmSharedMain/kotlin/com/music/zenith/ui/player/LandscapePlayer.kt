@@ -423,11 +423,8 @@ internal fun LandscapeArtwork(
             contentAlignment = Alignment.Center,
         ) {
             if (!artLoaded && !canvasRendered && dissolve?.outgoing == null && dissolve?.cutHold != true) {
-                Icon(
-                    imageVector = ZenithIcons.MusicNote,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.35f),
-                    modifier = Modifier.fillMaxSize(0.36f),
+                ZenithCoverPlaceholder(
+                    modifier = Modifier.fillMaxSize(0.5f),
                 )
             }
             AsyncImage(

@@ -95,6 +95,7 @@ object CanvasRepository {
                 lookup = { provider ->
                     when (provider) {
                         CanvasProvider.ZENITH -> CommunityCanvas.search(title, artist, album)
+                        CanvasProvider.VIVI -> ViviCanvas.search(title, artist, album)
                         CanvasProvider.APPLE_MUSIC -> AppleMusicCanvas.search(title, artist, album)
                         CanvasProvider.TIDAL -> TidalCanvas.search(title, artist, album)
                         CanvasProvider.SPOTIFY -> SpotifyCanvas.search(title, artist, album)
@@ -120,7 +121,7 @@ object CanvasRepository {
         // Offline (no active network) the lookup cannot run at all, so the
         // clip already worked out in an earlier session is the only answer.
         if (AppSettings.meteredConnection.value != null) return null
-        return CanvasIndex.get("song|${song.videoId}")
+        return CanvasIndex.get(key)
     }
 
     /**
@@ -137,8 +138,20 @@ object CanvasRepository {
             order = AppSettings.canvasProviderOrder.value,
         )
         val artwork = synchronized(cache) { cache[key]?.artwork }
-            ?: CanvasIndex.get("song|${song.videoId}")
+            ?: CanvasIndex.get(key)
         return artwork?.takeIf { CanvasCache.isCached(it) }
+    }
+
+    /**
+     * Forgets everything stored for [song]: memory answers (every provider
+     * order), the on-disk index and the cached clip files. Next lookup starts clean.
+     */
+    @OptIn(UnstableApi::class)
+    fun forget(song: Song) {
+        if (song.videoId.isBlank()) return
+        val prefix = "song|${song.videoId}|"
+        synchronized(cache) { cache.keys.removeAll { it.startsWith(prefix) } }
+        CanvasCache.remove(CanvasIndex.removePrefix(prefix))
     }
 
     /**
@@ -161,6 +174,7 @@ object CanvasRepository {
                 lookup = { provider ->
                     when (provider) {
                         CanvasProvider.ZENITH -> CommunityCanvas.searchAlbum(name, credit)
+                        CanvasProvider.VIVI -> ViviCanvas.searchAlbum(name, credit)
                         CanvasProvider.APPLE_MUSIC -> AppleMusicCanvas.searchAlbum(name, credit)
                         CanvasProvider.TIDAL -> TidalCanvas.searchAlbum(name, credit)
                         CanvasProvider.SPOTIFY -> SpotifyCanvas.searchAlbum(name, credit)
@@ -174,8 +188,8 @@ object CanvasRepository {
     private fun cacheKey(base: String, order: List<CanvasProvider>): String =
         "$base|order=${order.joinToString(",") { it.name }}"
 
-    /** The question without its priority order — what the on-disk index is keyed on. */
-    private fun baseKey(key: String): String = key.substringBeforeLast("|order=")
+    // The on-disk index is keyed on the full key (order included), so a clip
+    // found under another provider order is never reused as a fallback.
 
     private suspend fun resolve(
         key: String,
@@ -185,7 +199,7 @@ object CanvasRepository {
         synchronized(cache) {
             cache[key]?.let { if (it.reusable(withAlbum)) return@withLock it.artwork }
         }
-        val saved = CanvasIndex.get(baseKey(key))
+        val saved = CanvasIndex.get(key)
         // Offline there is nothing to ask. Answer from the on-disk index and
         // do not remember a miss: it would outlive the outage and keep the
         // canvas off after the network is back.
@@ -193,7 +207,7 @@ object CanvasRepository {
         // A lookup that fails online (no internet behind the Wi-Fi, provider
         // down) falls back to the clip that was found before.
         val found = withContext(Dispatchers.IO) { lookUp() } ?: saved
-        if (found != null) CanvasIndex.put(baseKey(key), found)
+        if (found != null) CanvasIndex.put(key, found)
         synchronized(cache) { cache[key] = Entry(found, withAlbum) }
         found
     }

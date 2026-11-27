@@ -1771,7 +1771,16 @@ fun NowPlayingScreen(
     val fullBleedArt = fullBleedSetting && !(videoMode && canvas == null)
     SideEffect { CanvasFadeTuning.fullBleed.value = fullBleedArt }
     // Canvas Zenith punya set setelan fade dan kontrol sendiri.
-    SideEffect { CanvasFadeTuning.selectScope(canvas?.source == CanvasSource.ZENITH) }
+    SideEffect {
+        CanvasFadeTuning.selectScope(
+            canvas?.source == CanvasSource.ZENITH || canvas?.source == CanvasSource.VIVI,
+        )
+    }
+    SideEffect {
+        CanvasFadeTuning.sourceLabel.value = canvas?.let {
+            "${it.source.name} · ${it.url.substringAfter("://").substringBefore('/')}"
+        } ?: "tidak ada klip"
+    }
     // Full-bleed is a phone idiom. What the width has to rule out is a player
     // running a foot wider than the column of controls under it — edge to edge
     // meaning "a picture, and separately some controls" rather than "the
@@ -1960,6 +1969,9 @@ fun NowPlayingScreen(
     val spotifyCanvasFullscreen = spotifyCanvasOnPhone &&
         heroClip?.source == CanvasSource.SPOTIFY
     val spotifyCanvasPresentation = spotifyCanvasFullscreen && canvasRendered
+    // Read by the sleeve's drag handler without being one of its keys: the canvas
+    // flipping rendered/unrendered mid-drag must not restart that handler.
+    val spotifyCanvasPresentationNow by rememberUpdatedState(spotifyCanvasPresentation)
 
     // The clip's player, which outlives [heroClip] by the second half of a
     // collapse: mounted from the moment the player is asked back, and let go
@@ -2031,11 +2043,15 @@ fun NowPlayingScreen(
         volume.dragging,
         lyricsOpen,
         queueOpen,
+        queueDragging,
         transitionHold,
     ) {
+        // Not while a finger is pulling the queue in: the deck leaving mid-drag
+        // changes the height the whole layout is measured against, and the
+        // sleeve and queue jump with it.
         if (!spotifyCanvasPresentation || !spotifyCanvasControlsOpen ||
             !spotifyCanvasAutoHide || !isPlaying || scrub.scrubbing || volume.dragging ||
-            lyricsOpen || queueOpen || transitionHold
+            lyricsOpen || queueOpen || queueDragging || transitionHold
         ) return@LaunchedEffect
         delay(SPOTIFY_CANVAS_CONTROLS_IDLE_MS)
         spotifyCanvasControlsOpen = false
@@ -2105,6 +2121,17 @@ fun NowPlayingScreen(
         heroHeight.toPx() + CanvasFadeTuning.offset().coerceAtLeast(0f).dp.toPx()
     }
     heroClipGeometry.fade = if (clipPortrait) clipFadeFraction else HERO_FADE_FRACTION
+    val panelSnapKey = remember { BooleanArray(1) }
+    SideEffect {
+        val open = lyricsOpen || queueOpen
+        if (panelSnapKey[0] != open) {
+            panelSnapKey[0] = open
+            CanvasFadeTuning.layoutLabel.value =
+                "${if (open) "buka" else "tutup"} panel: asp=${"%.2f".format(canvasAspect)} " +
+                    "potret=$clipPortrait grow=$growBox live=$liveCanvasPanels " +
+                    "hero=${heroHeight.value.toInt()} off=${CanvasFadeTuning.offset().toInt()}"
+        }
+    }
     val statusBarTop = stableStatusBarInsets().asPaddingValues().calculateTopPadding()
     // What sits between the status bar and the artwork: the drag strip. Read
     // in three places — the strip itself,
@@ -2514,7 +2541,11 @@ fun NowPlayingScreen(
         // tadi berada, bukan di-crop ke kotak banner yang lebih pendek.
         val held = if (still == null) dissolve.frame else null
         val image = still ?: held ?: return 0f
-        if (!heroMode || image.width >= image.height || playerBounds.width <= 0) return 0f
+        // Klip kotak/landscape sudah dibungkus kotak setinggi hero + offset, jadi still
+        // hasil tangkapannya sudah termasuk offset. Jangan dianggap still portrait.
+        if (!heroMode || image.width >= image.height || playerBounds.width <= 0 ||
+            (still != null && canvasAspect >= 1f)
+        ) return 0f
         val full = minOf(playerBounds.width * image.height / image.width.toFloat(), playerBounds.height.toFloat())
         // Selama frame dipudarkan, tinggi mengerut mulus ke banner, supaya cover lagu
         // baru tidak melompat ukuran begitu frame dilepas.
@@ -3337,7 +3368,7 @@ fun NowPlayingScreen(
                                 CanvasContentMode.FIT_PORTRAIT
                             },
                             alignPortraitTop = clipPortrait,
-                            onAspectRatioChanged = { canvasAspect = it },
+                            onAspectRatioChanged = { if (it > 0f) canvasAspect = it },
                             portraitRevealBounds = playerBounds,
                             // Gone by the half, where [heroClip] lets it go — and the
                             // still sleeve collapsing over it takes exactly the cover
@@ -3498,6 +3529,10 @@ fun NowPlayingScreen(
                         hideVolume = hideVolumeBar,
                         lyricStrip = lyricStripEnabled,
                         lyricStripAvailable = syncedLyricsEnabled,
+                        onClearCanvas = {
+                            PlayerPlatform.host.forgetCanvas(song)
+                            CanvasFadeTuning.refreshTick.intValue++
+                        },
                     )
                 }
 
@@ -3947,7 +3982,7 @@ fun NowPlayingScreen(
                             // half second lying across a list the finger was already
                             // scrolling.
                             .onGloballyPositioned { dismissBandSpace = it }
-                            .pointerInput(showAudioPipeline, showCast, panelScrolling, spotifyCanvasPresentation) {
+                            .pointerInput(showAudioPipeline, showCast, panelScrolling) {
                                 if (showAudioPipeline || showCast || panelScrolling) return@pointerInput
                                 awaitEachGesture {
                                     // Unconsumed on purpose, as the blanket version was:
@@ -3965,7 +4000,7 @@ fun NowPlayingScreen(
                                         queueSlide.floatValue > 0.01f
                                     // Canvas with its deck hidden: the queue cannot be
                                     // dragged in until the player is shown again.
-                                    val canvasHidden = spotifyCanvasPresentation &&
+                                    val canvasHidden = spotifyCanvasPresentationNow &&
                                         !spotifyCanvasControlsOpen && !panelUp
                                     val bandTop: Float
                                     val bandBottom: Float
@@ -3984,7 +4019,21 @@ fun NowPlayingScreen(
                                                 travel = bandBottom - bandTop -
                                                     HEADER_HEIGHT.toPx(),
                                                 slide = queueSlide,
-                                                onHold = { queueDragging = it },
+                                                // Checked when the finger crosses the slop, not only at
+                                                // the press: a deck that auto-hid in between still
+                                                // refuses the drag.
+                                                allowed = {
+                                                    !(spotifyCanvasPresentationNow && !spotifyCanvasControlsOpen)
+                                                },
+                                                onHold = { holding ->
+                                                    queueDragging = holding
+                                                    // A deck that is on its way out is brought back
+                                                    // and held for the whole drag, so it does not
+                                                    // snap in (or out) when the finger lets go.
+                                                    if (holding && spotifyCanvasPresentationNow) {
+                                                        spotifyCanvasControlsOpen = true
+                                                    }
+                                                },
                                                 onSettle = { open ->
                                                     if (open != queueOpen) {
                                                         haptics.play(
@@ -4275,7 +4324,8 @@ fun NowPlayingScreen(
                         // from inside a layout. Writing the same answer back costs a
                         // comparison here and a whole frame if it is left to the snapshot
                         // to notice.
-                        val bannerSettled = !lyricsOpen || heroHeight == 0.dp
+                        val bannerSettled =
+                            !(lyricsOpen || queueOpen || queueDragging || collapseStarted) || heroHeight == 0.dp
                         if (bannerSettled && bannerBottom != heroHeight) {
                             SideEffect { heroHeight = bannerBottom }
                         }
@@ -4855,12 +4905,9 @@ fun NowPlayingScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (!art.loaded && !canvasRendered && dissolve.outgoing == null && !dissolve.cutHold) {
-                                    Icon(
-                                        imageVector = ZenithIcons.MusicNote,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.35f),
+                                    ZenithCoverPlaceholder(
                                         modifier = Modifier
-                                            .size(40.dp)
+                                            .size(110.dp)
                                             .graphicsLayer {
                                                 val scale = 1f - 0.5f * p()
                                                 scaleX = scale
@@ -6117,6 +6164,7 @@ private suspend fun AwaitPointerEventScope.dragQueueIn(
     slide: MutableFloatState,
     onHold: (Boolean) -> Unit,
     onSettle: (Boolean) -> Unit,
+    allowed: () -> Boolean = { true },
 ) {
     // A block with nowhere to travel — a player not yet measured — would divide
     // by nothing and snap the queue open on the first pixel of movement.
@@ -6124,7 +6172,7 @@ private suspend fun AwaitPointerEventScope.dragQueueIn(
 
     var pulled = 0f
     val drag = awaitVerticalTouchSlopOrCancellation(down.id) { change, overSlop ->
-        if (overSlop < 0f) {
+        if (overSlop < 0f && allowed()) {
             pulled = -overSlop
             change.consume()
         }
@@ -6135,11 +6183,22 @@ private suspend fun AwaitPointerEventScope.dragQueueIn(
     val velocity = VelocityTracker()
     velocity.addPointerInputChange(drag)
     slide.floatValue = (pulled / travel).coerceIn(0f, 1f)
-    verticalDrag(drag.id) { change ->
-        velocity.addPointerInputChange(change)
-        pulled -= change.positionChange().y
-        slide.floatValue = (pulled / travel).coerceIn(0f, 1f)
-        change.consume()
+    // A cancelled gesture (the handler restarting mid-drag) must still hand the
+    // value back, or the settle stays parked and the queue freezes half-way in.
+    var completed = false
+    try {
+        verticalDrag(drag.id) { change ->
+            velocity.addPointerInputChange(change)
+            pulled -= change.positionChange().y
+            slide.floatValue = (pulled / travel).coerceIn(0f, 1f)
+            change.consume()
+        }
+        completed = true
+    } finally {
+        if (!completed) {
+            onHold(false)
+            onSettle(slide.floatValue >= QUEUE_CARRY_FRACTION)
+        }
     }
 
     // A flick decides on its own — it says "open" without asking the finger to

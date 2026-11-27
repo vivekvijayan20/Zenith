@@ -78,6 +78,7 @@ object TidalCanvas {
 
             Log.d(TAG, "video cover for '$trackTitle' by ${artists.joinToString()}")
             return CanvasArtwork(
+                source = CanvasSource.TIDAL,
                 url = videoUrl,
                 title = trackTitle,
                 artist = artists.joinToString(", ").ifBlank { null },
@@ -125,6 +126,7 @@ object TidalCanvas {
 
             Log.d(TAG, "video cover for album '$recordTitle' by ${artists.joinToString()}")
             return CanvasArtwork(
+                source = CanvasSource.TIDAL,
                 url = videoUrl,
                 title = recordTitle,
                 artist = artists.joinToString(", ").ifBlank { null },

@@ -6177,7 +6177,20 @@ class PlaybackService : MediaLibraryService() {
         return false
     }
 
-    private fun currentSourceName(mediaId: String?, mediaItem: MediaItem?): String? {
+    private fun currentSourceName(
+        mediaId: String?,
+        mediaItem: MediaItem?,
+        lossless: Boolean = false,
+    ): String? {
+        val name = recordedSourceName(mediaId, mediaItem)
+        // YouTube only ever serves lossy audio. When the decoder is fed a lossless
+        // codec, a "YouTube" answer is a stale record or the id-length fallback
+        // (e.g. a FLAC replayed from cache after a restart), not the real source.
+        if (lossless && name == "YouTube") return "Addon"
+        return name
+    }
+
+    private fun recordedSourceName(mediaId: String?, mediaItem: MediaItem?): String? {
         val id = mediaId ?: return null
         if (isLocalPlayback(id, mediaItem)) {
             return "Local Storage"
@@ -6331,6 +6344,9 @@ class PlaybackService : MediaLibraryService() {
         val dsd = format?.codecs?.takeIf { it.startsWith("dsd") }
         val dsdRateHz = dsd?.removePrefix("dsd")?.toIntOrNull()?.times(44_100)
         val isLossless = dsd != null || NerdStats.isLosslessMime(format?.sampleMimeType)
+        // YouTube serves neither lossless nor Atmos, so a "YouTube" source name over
+        // either is a stale record or the id-length fallback, not the real source.
+        val beyondYouTube = isLossless || NerdStats.isDolbyAtmosMime(format?.sampleMimeType)
         val isRawPcm = NerdStats.isRawPcm(format?.sampleMimeType)
         val pcmDataRate = measured?.pcmBitrateKbps
 
@@ -6358,7 +6374,7 @@ class PlaybackService : MediaLibraryService() {
             com.music.zenith.data.settings.TrackQualityMemory.noteSeen(
                 track = mediaId,
                 lossless = isLossless,
-                sourceName = currentSourceName(mediaId, player.currentMediaItem),
+                sourceName = currentSourceName(mediaId, player.currentMediaItem, beyondYouTube),
             )
         }
 
@@ -6371,7 +6387,7 @@ class PlaybackService : MediaLibraryService() {
             channels = measured?.channels,
             bitDepth = if (dsd != null) 1 else if (isLossless) measured?.bitDepth else null,
             claimed = NerdStats.declaredFormat(mediaId),
-            sourceName = currentSourceName(mediaId, player.currentMediaItem),
+            sourceName = currentSourceName(mediaId, player.currentMediaItem, beyondYouTube),
             container = when (format?.containerMimeType) {
                 "audio/x-dsf" -> "DSF"
                 "audio/x-dff" -> "DFF"

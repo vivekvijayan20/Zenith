@@ -119,6 +119,8 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
 
     override fun cachedCanvasOnDisk(song: Song): CanvasArtwork? = CanvasRepository.cachedOnDisk(song)
 
+    override fun forgetCanvas(song: Song) = CanvasRepository.forget(song)
+
     override suspend fun canvasFor(song: Song): CanvasArtwork? = CanvasRepository.canvasFor(song)
 
     @Composable

@@ -41,6 +41,9 @@ interface PlayerHost {
      */
     fun cachedCanvasOnDisk(song: Song): CanvasArtwork? = null
 
+    /** Drops every cached canvas answer and clip for [song]. Debug panel only. */
+    fun forgetCanvas(song: Song) {}
+
     /** Looks a Canvas up for [song]; null is the normal answer. */
     suspend fun canvasFor(song: Song): CanvasArtwork?
 

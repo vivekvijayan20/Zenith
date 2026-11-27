@@ -7,13 +7,14 @@ package com.music.zenith.data.canvas
  */
 enum class CanvasProvider(val label: String) {
     ZENITH("Zenith"),
+    VIVI("Vivi"),
     APPLE_MUSIC("Apple Music"),
     TIDAL("Tidal"),
     SPOTIFY("Spotify");
 
     companion object {
         /** The order the app shipped with before it became configurable. */
-        val defaultOrder: List<CanvasProvider> = listOf(APPLE_MUSIC, TIDAL, ZENITH, SPOTIFY)
+        val defaultOrder: List<CanvasProvider> = listOf(APPLE_MUSIC, TIDAL, VIVI, ZENITH, SPOTIFY)
 
         /** What the old "prioritize Spotify" switch produced. */
         val spotifyFirst: List<CanvasProvider> =

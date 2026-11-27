@@ -96,6 +96,7 @@ object AppleMusicCanvas {
                     Log.d(TAG, "inline motion artwork for '$songName'")
                     return CanvasArtwork(
                         primary, alternate, songName, songArtist, albumName,
+                        source = CanvasSource.APPLE,
                         portraitUrl = tallUrl(video),
                     )
                 }
@@ -151,6 +152,7 @@ object AppleMusicCanvas {
 
             Log.d(TAG, "motion artwork for album '$name'")
             return CanvasArtwork(
+                source = CanvasSource.APPLE,
                 url = primary,
                 fallbackUrl = alternate,
                 title = name,
@@ -334,6 +336,7 @@ object AppleMusicCanvas {
 
         Log.d(TAG, "motion artwork on album '$albumName' ($albumId)")
         return CanvasArtwork(
+            source = CanvasSource.APPLE,
             url = primary,
             fallbackUrl = alternate,
             title = songTitle,

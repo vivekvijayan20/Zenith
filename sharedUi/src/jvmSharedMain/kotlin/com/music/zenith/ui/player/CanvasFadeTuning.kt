@@ -61,6 +61,9 @@ object CanvasFadeTuning {
     /** Tombol dan popup debug tampil hanya setelah kode rahasia diketik di pencarian. */
     val unlocked = mutableStateOf(false)
 
+    /** Dinaikkan saat cache canvas lagu ini dihapus, supaya pencarian canvas diulang. */
+    val refreshTick = mutableIntStateOf(0)
+
     /** Panel debug sedang terbuka. Disimpan di sini agar tidak hilang saat popup dibuat ulang. */
     val panelOpen = mutableStateOf(false)
 
@@ -167,6 +170,12 @@ object CanvasFadeTuning {
 
     /** True saat klip yang tampil berasal dari Zenith; dipasang oleh NowPlayingScreen. */
     val zenith = mutableStateOf(false)
+
+    /** Sumber klip yang sedang tampil (provider dan host URL); hanya untuk panel debug. */
+    val sourceLabel = mutableStateOf("")
+
+    /** Snapshot bentuk layout klip saat panel lirik/queue dibuka atau ditutup; hanya untuk debug. */
+    val layoutLabel = mutableStateOf("")
 
     /** Set milik scope yang sedang tidak aktif; ditukar masuk saat scope berganti. */
     private var parked = ZENITH_DEFAULTS
@@ -490,6 +499,7 @@ internal fun CanvasFadeDebugTuner(
     hideVolume: Boolean = false,
     lyricStrip: Boolean = true,
     lyricStripAvailable: Boolean = true,
+    onClearCanvas: () -> Unit = {},
 ) {
     val open = CanvasFadeTuning.panelOpen.value
     val atTop = CanvasFadeTuning.panelAtTop.value
@@ -525,6 +535,7 @@ internal fun CanvasFadeDebugTuner(
                     hideVolume = hideVolume,
                     lyricStrip = lyricStrip,
                     lyricStripAvailable = lyricStripAvailable,
+                    onClearCanvas = onClearCanvas,
                 )
             }
         }
@@ -538,6 +549,7 @@ private fun DebugTunerPanel(
     hideVolume: Boolean,
     lyricStrip: Boolean,
     lyricStripAvailable: Boolean,
+    onClearCanvas: () -> Unit,
 ) {
     val tab = CanvasFadeTuning.tab.value
     val translucent = CanvasFadeTuning.translucent.value
@@ -598,7 +610,7 @@ private fun DebugTunerPanel(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             when (tab) {
-                DebugTab.CANVAS -> CanvasTab(canvasActive)
+                DebugTab.CANVAS -> CanvasTab(canvasActive, onClearCanvas)
                 DebugTab.CONTROL -> ControlTab(hideVolume, lyricStrip, lyricStripAvailable)
             }
         }
@@ -660,7 +672,14 @@ private fun SegmentedTabs(selected: DebugTab, onSelect: (DebugTab) -> Unit) {
 }
 
 @Composable
-private fun CanvasTab(canvasActive: Boolean) {
+private fun CanvasTab(canvasActive: Boolean, onClearCanvas: () -> Unit) {
+    var cleared by remember { mutableStateOf(false) }
+    LaunchedEffect(cleared) {
+        if (cleared) {
+            delay(1500)
+            cleared = false
+        }
+    }
     val height = CanvasFadeTuning.activeHeight()
     val curve = CanvasFadeTuning.curve
     val power = CanvasFadeTuning.power
@@ -670,6 +689,8 @@ private fun CanvasTab(canvasActive: Boolean) {
     if (!canvasActive) {
         Caption("Klip Canvas tidak tampil di lagu ini. Nilai tetap bisa disetel dan dipakai saat klip muncul.")
     }
+    Caption("Sumber klip: ${CanvasFadeTuning.sourceLabel.value}")
+    Caption("Layout: ${CanvasFadeTuning.layoutLabel.value}")
     Caption(
         if (CanvasFadeTuning.zenith.value) "Scope: Canvas Zenith (setelan terpisah dari canvas lain)"
         else "Scope: Canvas lain (Zenith punya setelan sendiri)",
@@ -678,6 +699,10 @@ private fun CanvasTab(canvasActive: Boolean) {
         if (CanvasFadeTuning.fullBleed.value) "Mode: sampul layar penuh ON (Tinggi dan Geser Y khusus mode ini)"
         else "Mode: sampul layar penuh OFF (Tinggi dan Geser Y khusus mode ini)",
     )
+    PanelChip(if (cleared) "Cache dihapus" else "Hapus cache lagu ini") {
+        onClearCanvas()
+        cleared = true
+    }
     val keepPlaying = CanvasFadeTuning.keepPlayingWhileDocking
     SwitchRow("Klip tetap jalan saat player bergerak (logika lama)", keepPlaying.value) { keepPlaying.value = it }
     TunerRow("Tinggi (batas blur)", height.floatValue, 0f..2.0f, 0.01f) { height.floatValue = it }

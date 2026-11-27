@@ -57,6 +57,17 @@ object CanvasIndex {
 
     fun get(key: String): CanvasArtwork? = synchronized(entries) { entries[key] }
 
+    /** Removes every entry whose key starts with [prefix] and returns what was removed. */
+    fun removePrefix(prefix: String): List<CanvasArtwork> {
+        val removed = synchronized(entries) {
+            val hit = entries.filterKeys { it.startsWith(prefix) }
+            hit.keys.forEach { entries.remove(it) }
+            hit.values.toList()
+        }
+        if (removed.isNotEmpty()) persist()
+        return removed
+    }
+
     fun put(key: String, artwork: CanvasArtwork) {
         synchronized(entries) {
             if (entries[key] == artwork) return

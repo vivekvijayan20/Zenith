@@ -102,6 +102,18 @@ object CanvasCache {
             artwork.portraitUrl?.let(::isClipCached) == true ||
             artwork.fallbackUrl?.let(::isClipCached) == true
 
+    /** Deletes the stored clips of [artworks] (every rendition) in the background. */
+    fun remove(artworks: List<CanvasArtwork>) {
+        if (!::cache.isInitialized || artworks.isEmpty()) return
+        scope.launch {
+            artworks.forEach { a ->
+                listOfNotNull(a.url, a.portraitUrl, a.fallbackUrl).forEach { url ->
+                    runCatching { cache.removeResource(url) }
+                }
+            }
+        }
+    }
+
     /** Deletes every stored clip. Disk work: call off the main thread. */
     fun clear() {
         if (!::cache.isInitialized) return
