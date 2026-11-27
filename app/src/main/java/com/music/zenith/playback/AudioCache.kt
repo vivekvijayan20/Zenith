@@ -83,7 +83,40 @@ object AudioCache {
      * unlimited — from Settings. Least-recently-used entries are dropped past it, so it's a
      * ceiling rather than something the listener has to manage day to day.
      */
-    private val evictor = DynamicLruCacheEvictor(AppSettings.DEFAULT_CACHE_LIMIT_BYTES)
+    private val evictor = DynamicLruCacheEvictor(AppSettings.DEFAULT_CACHE_LIMIT_BYTES).also {
+        it.keepKey = { cache, key -> isKeptQuality(cache, key) }
+        it.onHeadRemoved = { key -> qualityKeys.remove(key) }
+    }
+
+    /** Verdicts of [isKeptQuality], per entry, so eviction reads a file's head once. */
+    private val qualityKeys = ConcurrentHashMap<String, Boolean>()
+
+    private const val QUALITY_SNIFF_BYTES = 64 * 1024
+
+    /**
+     * Whether the entry [key] holds a lossless or Dolby copy, judged from the
+     * first bytes of its first span: a FLAC stream, or an MP4 whose sample
+     * entry names ALAC or E-AC-3 (Dolby Digital Plus, which carries Atmos).
+     * Eviction passes these over for as long as other entries can go instead —
+     * see [DynamicLruCacheEvictor.keepKey]. Not decided, and not remembered,
+     * while the head of the entry is not on disk.
+     */
+    private fun isKeptQuality(cache: androidx.media3.datasource.cache.Cache, key: String): Boolean {
+        qualityKeys[key]?.let { return it }
+        val head = runCatching {
+            cache.getCachedSpans(key)
+                .firstOrNull { it.position == 0L && it.isCached }
+                ?.file
+                ?.takeIf { it.exists() }
+        }.getOrNull() ?: return false
+        val bytes = ByteArray(QUALITY_SNIFF_BYTES)
+        val read = runCatching { head.inputStream().use { it.read(bytes) } }.getOrDefault(-1)
+        if (read < 4) return false
+        val text = String(bytes, 0, read, Charsets.ISO_8859_1)
+        val kept = text.startsWith("fLaC") || text.contains("ec-3") || text.contains("alac")
+        qualityKeys[key] = kept
+        return kept
+    }
 
     /**
      * How much of the next track to fetch. About 50 seconds at 160kbps — long

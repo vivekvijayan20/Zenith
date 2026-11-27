@@ -65,6 +65,20 @@ class DynamicLruCacheEvictor(
     private var protectedSize = 0L
     private var currentSize = 0L
 
+    /**
+     * Whether the cache entry [key] holds a copy worth keeping over ordinary
+     * ones — lossless or Dolby. Such entries are passed over by eviction for as
+     * long as anything else can go, and only the last thing to be dropped when
+     * nothing else is left, so the ceiling still holds.
+     */
+    @Volatile var keepKey: ((Cache, String) -> Boolean)? = null
+
+    /** Told when the first span of an entry goes, so a verdict on its format can be forgotten. */
+    @Volatile var onHeadRemoved: ((String) -> Unit)? = null
+
+    private fun keeps(cache: Cache, span: CacheSpan): Boolean =
+        keepKey?.let { check -> runCatching { check(cache, span.key) }.getOrDefault(false) } ?: false
+
     /** A span is a head if it starts at the very beginning, or within [headBytes] of it. */
     private fun isHead(span: CacheSpan): Boolean = span.position < headBytes
 
@@ -96,6 +110,7 @@ class DynamicLruCacheEvictor(
             leastRecentlyUsed.remove(span)
         }
         currentSize -= span.length
+        if (span.position == 0L) onHeadRemoved?.invoke(span.key)
     }
 
     override fun onSpanTouched(cache: Cache, oldSpan: CacheSpan, newSpan: CacheSpan) {
@@ -112,7 +127,16 @@ class DynamicLruCacheEvictor(
 
     private fun evictCache(cache: Cache, requiredSpace: Long) {
         while (currentSize + requiredSpace > maxBytes) {
-            if (leastRecentlyUsed.isNotEmpty()) {
+            // The oldest span that is not a kept quality copy goes first.
+            val victim = leastRecentlyUsed.firstOrNull { !keeps(cache, it) }
+            if (victim != null) {
+                cache.removeSpan(victim)
+                continue
+            }
+            // Only kept copies and protected heads are left. Heads are released
+            // below first; once none remain, the oldest kept span is the last
+            // resort, so the ceiling is still a ceiling.
+            if (protectedHeads.isEmpty() && leastRecentlyUsed.isNotEmpty()) {
                 cache.removeSpan(leastRecentlyUsed.first())
                 continue
             }

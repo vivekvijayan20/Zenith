@@ -1958,6 +1958,10 @@ private fun LosslessOrStats(
             text = "Dolby Atmos",
             animated = true,
             iconPainter = painterResource(Res.drawable.ic_dolby_atmos),
+            // Measured from the decoder, so it sits in a chip like Lossless
+            // and JioSaavn, and a tap opens the stream details.
+            chip = true,
+            detail = nerdStats,
             modifier = modifier,
         )
         // Lossy, but the good end of lossy — a module's 320kbps tier, which
@@ -2247,7 +2251,9 @@ internal fun QualityDetailPopup(
         state.open = false
         state.progress = 0f
     }
-    val detailShown = latest?.let { it.isLossless || (it.isHiQuality && it.isJioSaavn()) } == true
+    val detailShown = latest?.let {
+        it.isLossless || it.isDolbyAtmos || (it.isHiQuality && it.isJioSaavn())
+    } == true
     LaunchedEffect(detailShown) {
         if (!detailShown) dismiss()
     }
@@ -2275,17 +2281,23 @@ internal fun QualityDetailPopup(
             ) {
                 ShimmerIcon(
                     painter = painterResource(
-                        if (stats.isLossless) Res.drawable.ic_lossless else Res.drawable.ic_jiosaavn,
+                        when {
+                            stats.isLossless -> Res.drawable.ic_lossless
+                            stats.isDolbyAtmos -> Res.drawable.ic_dolby_atmos
+                            else -> Res.drawable.ic_jiosaavn
+                        },
                     ),
-                    modifier = if (stats.isLossless) {
-                        Modifier.size(width = 46.dp, height = 25.dp)
-                    } else {
-                        Modifier.size(26.dp)
+                    modifier = when {
+                        stats.isLossless -> Modifier.size(width = 46.dp, height = 25.dp)
+                        // The double-D is 13x9 in its own units.
+                        stats.isDolbyAtmos -> Modifier.size(width = 26.dp, height = 18.dp)
+                        else -> Modifier.size(26.dp)
                     },
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
                     text = when {
+                        stats.isDolbyAtmos -> "Dolby Atmos"
                         !stats.isLossless -> "JioSaavn"
                         stats.isHiRes -> stringResource(Res.string.hi_res_lossless)
                         else -> stringResource(Res.string.lossless)
@@ -2516,6 +2528,8 @@ private fun codecLabel(mimeType: String?): String? = when {
     mimeType.endsWith("mpeg") -> "MP3"
     mimeType.endsWith("flac") -> "FLAC"
     mimeType.endsWith("alac") -> "ALAC"
+    mimeType.endsWith("eac3-joc") -> "E-AC-3 JOC"
+    mimeType.endsWith("eac3") -> "E-AC-3"
     else -> mimeType.substringAfter('/').uppercase(Locale.ROOT)
 }
 
