@@ -149,6 +149,9 @@ object LyricsTranslation {
 
         val slots = flatten(lines)
         if (slots.isEmpty()) return Result.Unavailable
+        // The user's AI providers go first; null means none of them could
+        // answer, and the built-in translation below takes over as before.
+        translateWithAi(trackId, lines, slots, target)?.let { return it }
         val cacheKey = cacheKey(trackId, target, slots)
         val cached = memory.get(cacheKey) ?: readCache(cacheKey)?.also {
             memory.put(cacheKey, it)
@@ -287,6 +290,50 @@ object LyricsTranslation {
             sourceLanguage = source,
             fromCache = false,
         )
+    }
+
+    private suspend fun translateWithAi(
+        trackId: String,
+        lines: List<LyricLine>,
+        slots: List<TextSlot>,
+        target: String,
+    ): Result? {
+        val config = AiLyricsTranslator.configProvider()
+        if (config.chain.isEmpty()) return null
+        // Its own cache key: an answer from Google never stands in for one from
+        // the models the user switched on, and the other way round.
+        val key = cacheKey(trackId, "$target\u0001ai", slots)
+        val cached = memory.get(key) ?: readCache(key)?.also { memory.put(key, it) }
+        if (cached != null && cached.version == CACHE_VERSION && cached.texts.size == slots.size) {
+            return if (sameLanguage(cached.sourceLanguage, target)) {
+                Result.SameLanguage(cached.sourceLanguage)
+            } else {
+                Result.Translated(
+                    lines = rebuild(lines, slots, cached.texts),
+                    sourceLanguage = cached.sourceLanguage,
+                    fromCache = true,
+                )
+            }
+        }
+        val answer = AiLyricsTranslator.translateAll(slots.map { it.text }, target, config) ?: return null
+        if (answer.lines.size != slots.size) return null
+        val source = answer.source.ifBlank { "und" }
+        val entry = CachedTranslation(
+            sourceLanguage = source,
+            targetLanguage = target,
+            texts = answer.lines,
+        )
+        memory.put(key, entry)
+        writeCache(key, entry)
+        return if (sameLanguage(source, target)) {
+            Result.SameLanguage(source)
+        } else {
+            Result.Translated(
+                lines = rebuild(lines, slots, answer.lines),
+                sourceLanguage = source,
+                fromCache = false,
+            )
+        }
     }
 
     private fun flatten(lines: List<LyricLine>): List<TextSlot> = buildList {

@@ -122,6 +122,16 @@ class AuthStore(context: Context) {
         set(value) = prefs.edit().putString(KEY_SMB_PASSWORD, value).apply()
 
     /**
+     * The AI translation API keys of one provider, one per line. Encrypted
+     * like every other credential here, and never part of a backup export.
+     */
+    fun aiKeys(provider: String): String? = prefs.getString("ai_translate_keys_$provider", null)
+
+    fun setAiKeys(provider: String, value: String?) {
+        prefs.edit().putString("ai_translate_keys_$provider", value).apply()
+    }
+
+    /**
      * The channel the listener chose to act as, if they chose one.
      *
      * Stored beside the cookie rather than in the plain settings because it is

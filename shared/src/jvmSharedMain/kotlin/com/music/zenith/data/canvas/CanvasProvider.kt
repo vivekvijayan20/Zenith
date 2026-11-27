@@ -14,7 +14,7 @@ enum class CanvasProvider(val label: String) {
 
     companion object {
         /** The order the app shipped with before it became configurable. */
-        val defaultOrder: List<CanvasProvider> = listOf(APPLE_MUSIC, TIDAL, VIVI, ZENITH, SPOTIFY)
+        val defaultOrder: List<CanvasProvider> = listOf(ZENITH, APPLE_MUSIC, TIDAL, SPOTIFY, VIVI)
 
         /** What the old "prioritize Spotify" switch produced. */
         val spotifyFirst: List<CanvasProvider> =
@@ -22,6 +22,6 @@ enum class CanvasProvider(val label: String) {
 
         /** A stored order made whole again: duplicates dropped, new providers appended. */
         fun ordered(saved: List<CanvasProvider>): List<CanvasProvider> =
-            saved.distinct() + defaultOrder.filter { it !in saved }
+            (saved + defaultOrder).distinct().filter { it != VIVI } + VIVI
     }
 }

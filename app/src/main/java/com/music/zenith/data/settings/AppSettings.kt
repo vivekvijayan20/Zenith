@@ -14,7 +14,11 @@ import androidx.media3.common.Player
 import com.music.zenith.auth.AuthStore
 import com.music.zenith.data.canvas.CanvasProvider
 import com.music.zenith.data.canvas.SpotifyToken
+import com.music.zenith.data.lyrics.AiProvider
+import com.music.zenith.data.lyrics.AiProviderConfig
+import com.music.zenith.data.lyrics.AiTranslateConfig
 import com.music.zenith.data.lyrics.LyricsSource
+import com.music.zenith.data.lyrics.parseAiKeys
 import com.music.zenith.data.model.HOME_SLOT_MOODS
 import com.music.zenith.data.model.homeShelfKey
 import com.music.zenith.data.model.HOME_SLOT_TOP_PICKS
@@ -1018,6 +1022,14 @@ object AppSettings {
     val translationLanguage = MutableStateFlow("")
 
     /**
+     * Lyrics translation through AI providers (Gemini, Groq, OpenRouter), in
+     * priority order. The API keys live in the encrypted [AuthStore]; the
+     * switches, models and order are plain prefs. Off, or without any key, the
+     * built-in translation is used exactly as before.
+     */
+    val aiTranslate = MutableStateFlow(AiTranslateConfig())
+
+    /**
      * Plays a looping video behind the cover art on the player when one is
      * published for the track — Spotify's Canvas, Apple's motion artwork.
      *
@@ -1764,6 +1776,7 @@ object AppSettings {
         lyricsSparkle.value = prefs.getBoolean(KEY_LYRICS_SPARKLE, true)
         lyricsOffsetByTrack = readLyricsOffsetByTrack()
         translationLanguage.value = prefs.getString(KEY_TRANSLATION_LANGUAGE, "").orEmpty()
+        aiTranslate.value = readAiTranslate()
         if (highPerformanceMode.value) {
             reduceAnimation.value = false
             reduceDynamicBlur.value = false
@@ -2733,6 +2746,62 @@ object AppSettings {
         prefs.edit().putString(KEY_TRANSLATION_LANGUAGE, value).apply()
     }
 
+    private fun readAiTranslate(): AiTranslateConfig {
+        val saved = prefs.getString(KEY_AI_ORDER, "").orEmpty()
+            .split(',')
+            .mapNotNull { AiProvider.fromId(it.trim()) }
+            .distinct()
+        val order = saved + AiProvider.entries.filterNot { it in saved }
+        return AiTranslateConfig(
+            enabled = prefs.getBoolean(KEY_AI_ENABLED, false),
+            providers = order.map { provider ->
+                AiProviderConfig(
+                    provider = provider,
+                    enabled = prefs.getBoolean("$KEY_AI_PREFIX${provider.id}_enabled", true),
+                    model = prefs.getString("$KEY_AI_PREFIX${provider.id}_model", "").orEmpty(),
+                    keys = parseAiKeys(authStore.aiKeys(provider.id).orEmpty()),
+                )
+            },
+        )
+    }
+
+    private fun editAiProvider(provider: AiProvider, change: (AiProviderConfig) -> AiProviderConfig) {
+        val current = aiTranslate.value
+        aiTranslate.value = current.copy(
+            providers = current.providers.map { if (it.provider == provider) change(it) else it },
+        )
+    }
+
+    fun setAiTranslateEnabled(value: Boolean) {
+        aiTranslate.value = aiTranslate.value.copy(enabled = value)
+        prefs.edit().putBoolean(KEY_AI_ENABLED, value).apply()
+    }
+
+    fun setAiProviderEnabled(provider: AiProvider, value: Boolean) {
+        editAiProvider(provider) { it.copy(enabled = value) }
+        prefs.edit().putBoolean("$KEY_AI_PREFIX${provider.id}_enabled", value).apply()
+    }
+
+    /** Blank goes back to the provider's default model. */
+    fun setAiProviderModel(provider: AiProvider, value: String) {
+        val model = value.trim()
+        editAiProvider(provider) { it.copy(model = model) }
+        prefs.edit().putString("$KEY_AI_PREFIX${provider.id}_model", model).apply()
+    }
+
+    /** [raw] may hold several keys separated by commas, spaces or new lines; blank removes them all. */
+    fun setAiProviderKeys(provider: AiProvider, raw: String) {
+        val keys = parseAiKeys(raw)
+        authStore.setAiKeys(provider.id, keys.joinToString("\n").ifEmpty { null })
+        editAiProvider(provider) { it.copy(keys = keys) }
+    }
+
+    fun setAiProviderOrder(order: List<AiProvider>) {
+        val byProvider = aiTranslate.value.providers.associateBy { it.provider }
+        aiTranslate.value = aiTranslate.value.copy(providers = order.mapNotNull { byProvider[it] })
+        prefs.edit().putString(KEY_AI_ORDER, order.joinToString(",") { it.id }).apply()
+    }
+
     fun setSyncedLyrics(value: Boolean) {
         syncedLyrics.value = value
         prefs.edit().putBoolean(KEY_SYNCED_LYRICS, value).apply()
@@ -3646,6 +3715,9 @@ object AppSettings {
     private const val KEY_LYRICS_OFFSET_BY_TRACK = "lyrics_offset_by_track"
     private const val MAX_LYRICS_OFFSET_TRACKS = 5000
     private const val KEY_TRANSLATION_LANGUAGE = "translation_language"
+    private const val KEY_AI_ENABLED = "ai_translate_enabled"
+    private const val KEY_AI_ORDER = "ai_translate_order"
+    private const val KEY_AI_PREFIX = "ai_translate_"
     private const val KEY_ANIMATED_CANVAS = "animated_canvas"
     private const val KEY_CANVAS_OVER_CELLULAR = "canvas_over_cellular"
     private const val KEY_SPOTIFY_CANVAS_AUTO_HIDE = "spotify_canvas_auto_hide"

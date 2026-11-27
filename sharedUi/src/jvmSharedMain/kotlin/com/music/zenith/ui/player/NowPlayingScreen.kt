@@ -1243,8 +1243,7 @@ fun NowPlayingScreen(
     // A music video plays its own picture where the sleeve is — see
     // [MusicVideoSurface] — and takes the place of any animated cover.
     val pictureCompanions by PlayerPlatform.host.musicVideoCompanions.collectAsStateWithLifecycle()
-    val videoMode = showsMusicVideo(song) ||
-        (PlayerPlatform.host.musicVideoSupported && song.videoId in pictureCompanions)
+    val videoMode = showsMusicVideo(song) || song.videoId in pictureCompanions
     // Square video covers: the picture takes the sleeve's own slot, cropped to
     // it, instead of the full-width box at the video's shape.
     val squareVideo = videoMode && VideoThumbnails.square
@@ -5340,8 +5339,14 @@ fun NowPlayingScreen(
                                         .offset {
                                             if (squareVideo) {
                                                 val side = artSize().roundToPx()
+                                                // Node di-clamp ke lebar box seperti sleeve; kelebihannya
+                                                // (sisi card > lebar box) dibagi rata ke kiri-kanan.
+                                                val nodeWidth = side.coerceAtMost(boxWidthPx)
                                                 return@offset IntOffset(
-                                                    fromStart(artStart().roundToPx().toFloat(), side.toFloat()).roundToInt(),
+                                                    fromStart(
+                                                        artStart().roundToPx() + (side - nodeWidth) / 2f,
+                                                        nodeWidth.toFloat(),
+                                                    ).roundToInt(),
                                                     artTop().roundToPx(),
                                                 )
                                             }
@@ -5353,7 +5358,10 @@ fun NowPlayingScreen(
                                             val width = if (squareVideo) artSize().roundToPx() else boxWidthPx
                                             val height = if (squareVideo) width else (boxWidthPx / aspect).roundToInt()
                                             val placeable = measurable.measure(Constraints.fixed(width, height))
-                                            layout(width, height) { placeable.placeRelative(0, 0) }
+                                            val nodeWidth = width.coerceAtMost(boxWidthPx)
+                                            layout(nodeWidth, height) {
+                                                placeable.placeRelative(-(width - nodeWidth) / 2, 0)
+                                            }
                                         }
                                         .graphicsLayer {
                                             alpha = (1f - p() * 2f).coerceIn(0f, 1f)

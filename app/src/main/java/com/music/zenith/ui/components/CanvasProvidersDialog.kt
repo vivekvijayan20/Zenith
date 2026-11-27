@@ -121,7 +121,7 @@ fun CanvasProvidersDialog(
             IosMenuScrollEnvironment(touch) {
                 Column {
                     ReorderableProviderList(
-                        order = savedOrder,
+                        order = savedOrder.filter { it != CanvasProvider.VIVI },
                         onReorder = AppSettings::setCanvasProviderOrder,
                     )
 

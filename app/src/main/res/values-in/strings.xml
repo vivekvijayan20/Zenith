@@ -1236,6 +1236,72 @@
 
     <string name="translation_language_subtitle">Mengikuti bahasa aplikasi</string>
 
+    <string name="ai_translate">Terjemahan AI</string>
+
+    <string name="ai_translate_subtitle">Gemini, Groq, dan OpenRouter dengan fallback otomatis</string>
+
+    <string name="ai_translate_use">Pakai terjemahan AI</string>
+
+    <string name="ai_translate_use_subtitle">Lirik diterjemahkan model AI. Kalau semua provider gagal, terjemahan bawaan yang dipakai.</string>
+
+    <string name="ai_translate_need_key">Isi minimal satu API key di bawah, kalau tidak terjemahan bawaan yang dipakai.</string>
+
+    <string name="ai_translate_order">Urutan provider</string>
+
+    <string name="ai_translate_order_message">Provider pertama dicoba lebih dulu. Kalau dia atau semua key-nya gagal, lanjut ke provider berikutnya.</string>
+
+    <string name="ai_translate_builtin">Bawaan</string>
+
+    <string name="ai_translate_flow_footer">Alur: provider 1 (key 1, lalu key cadangan) → provider 2 → provider 3 → terjemahan bawaan. Key yang kena limit atau ditolak dilewati sementara.</string>
+
+    <string name="ai_translate_test">Tes koneksi</string>
+
+    <string name="ai_translate_test_subtitle">Kirim satu kalimat pendek ke tiap provider yang aktif.</string>
+
+    <string name="ai_translate_testing">Mengetes…</string>
+
+    <string name="ai_translate_test_none">Belum ada provider aktif yang punya API key.</string>
+
+    <string name="ai_translate_last_used">Terakhir dipakai</string>
+
+    <string name="ai_translate_last_used_none">Belum ada</string>
+
+    <string name="ai_provider_header">%1$s · prioritas %2$d</string>
+
+    <string name="ai_provider_keys">API key</string>
+
+    <string name="ai_provider_keys_title">API key %1$s</string>
+
+    <string name="ai_provider_keys_none">Belum diisi</string>
+
+    <string name="ai_provider_keys_count">%1$d terisi, dicoba berurutan</string>
+
+    <string name="ai_provider_keys_message">Pisahkan beberapa key dengan koma. Key pertama dipakai lebih dulu, sisanya cadangan kalau kena limit.</string>
+
+    <string name="ai_provider_model">Model</string>
+
+    <string name="ai_provider_model_title">Model %1$s</string>
+
+    <string name="ai_provider_model_message">Daftarnya diambil langsung dari API key kamu.</string>
+
+    <string name="ai_provider_model_auto">Otomatis</string>
+
+    <string name="ai_provider_model_auto_detail">Model terbaik yang bisa dipakai API key kamu</string>
+
+    <string name="ai_provider_test">Tes API key</string>
+
+    <string name="ai_provider_test_subtitle">Cek tiap key dan apakah modelnya menjawab.</string>
+
+    <string name="ai_model_search">Cari model</string>
+
+    <string name="ai_model_loading">Mengambil daftar model…</string>
+
+    <string name="ai_model_retry">Coba lagi</string>
+
+    <string name="ai_model_none">Tidak ada model yang cocok</string>
+
+    <string name="ai_provider_get_key">Dapatkan key di %1$s</string>
+
     <string name="search_languages">Cari bahasa</string>
 
     <string name="no_languages_match">Tidak ada bahasa yang cocok</string>

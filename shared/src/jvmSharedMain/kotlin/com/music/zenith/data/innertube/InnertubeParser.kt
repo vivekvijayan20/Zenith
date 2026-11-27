@@ -1244,12 +1244,12 @@ object InnertubeParser {
      */
     fun parseDescription(root: JsonElement): String? {
         val shelf = collectRenderers(root, "musicDescriptionShelfRenderer")
-            .firstOrNull()?.o("description").runs()
+            .firstOrNull()?.o("description").descriptionText()
         if (shelf.isNotBlank()) return shelf
         val onHeader = (HEADER_RENDERERS + "musicImmersiveHeaderRenderer")
             .firstNotNullOfOrNull { name ->
                 collectRenderers(root, name).firstOrNull()
-                    ?.o("description").runs().takeIf { it.isNotBlank() }
+                    ?.o("description").descriptionText().takeIf { it.isNotBlank() }
             }
         return onHeader
     }
@@ -1871,6 +1871,14 @@ private fun JsonObject.isPrivateUpload(): Boolean =
 
 private fun JsonElement?.runs(): String =
     this.a("runs")?.joinToString("") { it.s("text").orEmpty() }.orEmpty()
+
+/** Like [runs], but a link YouTube shortened with "..." is written out in full. */
+private fun JsonElement?.descriptionText(): String =
+    this.a("runs")?.joinToString("") { run ->
+        val text = run.s("text").orEmpty()
+        val url = run.o("navigationEndpoint").o("urlEndpoint").s("url")
+        if (text.startsWith("http") && url != null && url.startsWith("http")) url else text
+    }.orEmpty()
 
 /** The first run's text alone — for a field that is a count or a label, never a sentence. */
 private fun JsonElement?.firstRunText(): String? =

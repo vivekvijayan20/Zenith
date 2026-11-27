@@ -183,6 +183,7 @@ import com.music.zenith.playback.AudioCache
 import com.music.zenith.ui.player.fullBleedArtworkAvailable
 import androidx.compose.runtime.produceState
 import com.music.zenith.data.canvas.CanvasCache
+import com.music.zenith.data.canvas.CanvasProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -213,6 +214,7 @@ fun SettingsScreen(
     onOpenReplay: () -> Unit,
     onLyricsSources: () -> Unit,
     onTranslationLanguage: () -> Unit,
+    onAiTranslate: () -> Unit,
     onSources: () -> Unit,
     onListenTogether: () -> Unit,
     onSpotifyCanvasAuth: () -> Unit,
@@ -2002,6 +2004,16 @@ fun SettingsScreen(
                         },
                         trailing = { Chevron() },
                         onClick = onTranslationLanguage,
+                    )
+                }
+                val aiTranslateTitle = stringResource(R.string.ai_translate)
+                row(aiTranslateTitle, "lyrics", "translate", "ai", "gemini", "groq", "openrouter") {
+                    SettingsRow(
+                        icon = SfIcons.AutoAwesome,
+                        title = aiTranslateTitle,
+                        subtitle = stringResource(R.string.ai_translate_subtitle),
+                        trailing = { Chevron() },
+                        onClick = onAiTranslate,
                     )
                 }
             }
@@ -4360,7 +4372,9 @@ fun SettingsChoicePage(
                     SettingsRow(
                         icon = SfIcons.Reorder,
                         title = stringResource(R.string.canvas_provider_order),
-                        subtitle = canvasOrder.joinToString(" › ") { it.label },
+                        subtitle = canvasOrder
+                            .filter { it != CanvasProvider.VIVI }
+                            .joinToString(" › ") { it.label },
                         enabled = animatedCanvas,
                         trailing = { Chevron() },
                         onClick = onCanvasProviders,
